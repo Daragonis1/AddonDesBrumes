@@ -1,0 +1,1606 @@
+------------------------------------------------------------------------------
+-- Talents.lua : arbres, editeur MJ, barre d'action, resolution, cooldowns, specs
+------------------------------------------------------------------------------
+local ADB = ADB
+local floor, min, max = math.floor, math.min, math.max
+local format = string.format
+local Borner, Encoder, Decoder, Net = ADB.Borner, ADB.Encoder, ADB.Decoder, ADB.NettoyerNom
+local UI = ADB.UI
+local Etiq, Saisie, Bouton, FenetreBase = UI.Etiq, UI.Saisie, UI.Bouton, UI.FenetreBase
+local IconeTex = ADB.IconeTex
+
+local TAL = {
+    COLS = 12,
+    ROWS = 16,
+    CELL = 52,
+    ICON = 38,
+    MAX_REQ = 6,
+    DESC_MAX = 1000,
+    NOM_MAX = 40,
+    MANA_MAX = 999,
+    COUT_MAX = 999,
+    POR_MAX = 200,
+    ZOE_MAX = 200,
+    TAGS_MAX = 6,
+    TYPES = { "Actif", "Passif" },
+    STATS = { "Aucune", "Force", "Agilité", "Intelligence" },
+    INTERS = { "Dégâts", "Soins", "Bouclier", "Autre" },
+    ELEMS = { "Physique", "Sacré", "Ombre", "Chaos", "Feu", "Nature", "Astral", "Givre" },
+    LIMITES = { { "1/repos", 1, "r" }, { "1/5 tours", 5, "t" }, { "1/10 tours", 10, "t" },
+        { "1/3 repos", 3, "r" }, { "Illimité", 0, "i" } },
+}
+ADB.TAL = TAL
+ADB.CMD_TAL = { TN = true, TD = true, TF = true, TX = true, TS = true, TE = true, TQ = true, HQ = true, HR = true }
+
+------------------------------------------------------------------------------
+-- 1. DONNEES
+------------------------------------------------------------------------------
+local function NetDesc(s)
+    s = tostring(s or ""):gsub("[%c|]", " ")
+    return strtrim(s):sub(1, TAL.DESC_MAX * 2)
+end
+
+local function NetTag(s)
+    return (tostring(s or ""):lower():match("[%w_]+") or ""):sub(1, 16)
+end
+
+local function NetTags(s)
+    local t, vus = {}, {}
+    local src = type(s) == "table" and table.concat(s, ",") or tostring(s or "")
+    for w in src:lower():gmatch("[%w_]+") do
+        w = w:sub(1, 16)
+        if not vus[w] and #t < TAL.TAGS_MAX then
+            vus[w] = true
+            t[#t + 1] = w
+        end
+    end
+    return t
+end
+
+local function Extras(n, t)
+    n.coutPV = Borner(floor(tonumber(t.coutPV) or -1), -1, TAL.COUT_MAX)
+    n.portee = Borner(floor(tonumber(t.portee) or -1), -1, TAL.POR_MAX)
+    n.precision = Borner(floor(tonumber(t.precision) or -1), -1, 100)
+    n.zoe = Borner(floor(tonumber(t.zoe) or -1), -1, TAL.ZOE_MAX)
+    n.tags = NetTags(t.tags)
+    n.spe, n.specX, n.specY = (t.spe == true), NetTag(t.specX), NetTag(t.specY)
+    n.buffId = (n.typ == 1) and Borner(floor(tonumber(t.buffId) or 0), 0, 9999) or 0
+    if n.typ == 2 then
+        n.coutPV, n.portee, n.precision, n.zoe = -1, -1, -1, -1
+    else
+        n.spe, n.specX, n.specY = false, "", ""
+    end
+end
+
+local function ValiderNoeud(t)
+    if type(t) ~= "table" then return nil end
+    local id = floor(tonumber(t.id) or 0)
+    if id < 1 then return nil end
+    local icon = tostring(t.icon or "")
+    if #icon == 0 or #icon > 40 or icon:find("[^%w_]") then icon = "INV_Misc_QuestionMark" end
+    local nom = Net(t.nom):sub(1, TAL.NOM_MAX * 2)
+    if nom == "" then nom = "Talent" end
+    local req, vus = {}, {}
+    if type(t.req) == "table" then
+        for _, r in ipairs(t.req) do
+            r = floor(tonumber(r) or 0)
+            if r >= 1 and r ~= id and not vus[r] and #req < TAL.MAX_REQ then
+                vus[r] = true
+                req[#req + 1] = r
+            end
+        end
+    end
+    local n = {
+        id = id,
+        x = Borner(floor(tonumber(t.x) or 1), 1, TAL.COLS),
+        y = Borner(floor(tonumber(t.y) or 1), 1, TAL.ROWS),
+        typ = Borner(floor(tonumber(t.typ) or 1), 1, 2),
+        stat = Borner(floor(tonumber(t.stat) or 1), 1, 4),
+        inter = Borner(floor(tonumber(t.inter) or 4), 1, 4),
+        elem = Borner(floor(tonumber(t.elem) or 1), 1, 8),
+        mana = Borner(floor(tonumber(t.mana) or 0), 0, TAL.MANA_MAX),
+        lim = Borner(floor(tonumber(t.lim) or 5), 1, 5),
+        reac = t.reac == true,
+        bonus = t.bonus == true,
+        icon = icon,
+        nom = nom,
+        desc = NetDesc(t.desc),
+        req = req,
+    }
+    Extras(n, t)
+    if n.typ == 2 then n.mana, n.lim, n.reac, n.bonus = 0, 5, false, false end
+    return n
+end
+
+ADB.TalValiderNoeud = ValiderNoeud
+
+function ADB.TalInitDB(db)
+    if type(db.talents) ~= "table" then db.talents = {} end
+    local T = db.talents
+    local arbres = {}
+    if type(T.arbres) == "table" then
+        for classe, a in pairs(T.arbres) do
+            if ADB.CLASSE_MAP[classe] and type(a) == "table" and type(a.noeuds) == "table" then
+                local noeuds, maxId = {}, 0
+                for _, t in pairs(a.noeuds) do
+                    local n = ValiderNoeud(t)
+                    if n and not noeuds[n.id] then
+                        noeuds[n.id] = n
+                        maxId = max(maxId, n.id)
+                    end
+                end
+                arbres[classe] = {
+                    prochain = max(maxId + 1, floor(tonumber(a.prochain) or 1)),
+                    noeuds = noeuds
+                }
+            end
+        end
+    end
+    T.arbres = arbres
+    local appris = {}
+    if type(T.appris) == "table" then
+        for classe, ids in pairs(T.appris) do
+            if ADB.CLASSE_MAP[classe] and type(ids) == "table" then
+                appris[classe] = {}
+                for id, v in pairs(ids) do
+                    if v and tonumber(id) then appris[classe][floor(id)] = true end
+                end
+            end
+        end
+    end
+    T.appris = appris
+    local cd = {}
+    if type(T.cd) == "table" then
+        for cle, v in pairs(T.cd) do
+            if type(cle) == "string" and tonumber(v) and v > 0 then cd[cle] = Borner(floor(v), 1, 99) end
+        end
+    end
+    T.cd = cd
+end
+
+local function Appris(classe)
+    local ap = ADB.db.talents.appris
+    if type(ap[classe]) ~= "table" then ap[classe] = {} end
+    return ap[classe]
+end
+
+function ADB.TalArbre(classe, creer)
+    local arbres = ADB.db.talents.arbres
+    if not arbres[classe] and creer then arbres[classe] = { prochain = 1, noeuds = {} } end
+    return arbres[classe]
+end
+
+function ADB.TalIndexClasse(nom)
+    for i, c in ipairs(ADB.CLASSES) do
+        if c[1] == nom then return i end
+    end
+end
+
+function ADB.TalNoeudPropre(id)
+    local a = ADB.TalArbre(ADB.db.classe)
+    return a and a.noeuds[id] or nil
+end
+
+function ADB.PeutEditerTalents()
+    return ADB.EstMJ() or not IsInGroup()
+end
+
+function ADB.TalPointsTotal() return 3 + (ADB.db.level or 1) end
+
+function ADB.TalPointsUtilises()
+    local cl = ADB.db.classe
+    local a, n = ADB.TalArbre(cl), 0
+    if a then
+        for id in pairs(Appris(cl)) do
+            if a.noeuds[id] then n = n + 1 end
+        end
+    end
+    return n
+end
+
+function ADB.TalPointsRestants() return ADB.TalPointsTotal() - ADB.TalPointsUtilises() end
+
+function ADB.TalNettoyerPoints()
+    local cl = ADB.db.classe
+    local a = ADB.TalArbre(cl)
+    if not a or next(a.noeuds) == nil then return end
+    local ap, ids = Appris(cl), {}
+    for id in pairs(ap) do
+        if a.noeuds[id] then ids[#ids + 1] = id else ap[id] = nil end
+    end
+    table.sort(ids)
+    for i = #ids, ADB.TalPointsTotal() + 1, -1 do ap[ids[i]] = nil end
+    local vue
+    for _, id in ipairs(ids) do
+        if ap[id] and a.noeuds[id].spe then
+            if vue then ap[id] = nil else vue = true end
+        end
+    end
+end
+
+-- Specialisation apprise (une seule)
+function ADB.TalSpeActive()
+    local cl = ADB.db.classe
+    local a = ADB.TalArbre(cl)
+    if not a then return nil end
+    local best
+    for id in pairs(Appris(cl)) do
+        local n = a.noeuds[id]
+        if n and n.spe and (not best or n.id < best.id) then best = n end
+    end
+    return best
+end
+
+function ADB.TalATag(n, tag)
+    for _, t in ipairs(n.tags) do
+        if t == tag then return true end
+    end
+    return false
+end
+
+-- Tag X : +1 sur la valeur de base
+function ADB.TalBonusSpe(n)
+    local s = ADB.TalSpeActive()
+    if s and s.specX ~= "" and ADB.TalATag(n, s.specX) then return 1 end
+    return 0
+end
+
+function ADB.TalPrerequisOK(n)
+    local cl = ADB.db.classe
+    local a, ap = ADB.TalArbre(cl), Appris(cl)
+    for _, r in ipairs(n.req) do
+        if a.noeuds[r] and not ap[r] then return false end
+    end
+    return true
+end
+
+function ADB.TalPeutApprendre(n)
+    if Appris(ADB.db.classe)[n.id] then return false end
+    if ADB.TalPointsRestants() <= 0 then return false end
+    if n.spe then
+        local s = ADB.TalSpeActive()
+        if s and s.id ~= n.id then return false end
+    end
+    return ADB.TalPrerequisOK(n)
+end
+
+function ADB.TalActifs()
+    local cl = ADB.db.classe
+    local a, res = ADB.TalArbre(cl), {}
+    if not a then return res end
+    for id in pairs(Appris(cl)) do
+        local n = a.noeuds[id]
+        if n and n.typ == 1 then res[#res + 1] = n end
+    end
+    table.sort(res, function(p, q)
+        if p.y ~= q.y then return p.y < q.y end
+        if p.x ~= q.x then return p.x < q.x end
+        return p.id < q.id
+    end)
+    return res
+end
+
+------------------------------------------------------------------------------
+-- 2. VALEURS DYNAMIQUES, COOLDOWNS, ETAT
+------------------------------------------------------------------------------
+function ADB.TalMult(n)
+    if n.stat <= 1 then return 1 end
+    local d = ADB.GetStatBlock(ADB.playerName)
+    if not d then return 1 end
+    return ({ d.multForce, d.multAgi, d.multInt })[n.stat - 1]
+end
+
+-- "[2]" -> brut : "2" (bleu) / modifie : (valeur+bonus)*mult (vert). Retourne texte, 1re valeur modifiee.
+function ADB.TalTexte(desc, modifie, mult, bonus)
+    local premier
+    local txt = (tostring(desc or ""):gsub("%[([%d%.,]+)%]", function(x)
+        local v = tonumber((x:gsub(",", ".")))
+        if not v then return nil end
+        if modifie then
+            local r = floor((v + (bonus or 0)) * mult + 0.5)
+            premier = premier or r
+            return "|cff40ff40" .. r .. "|r"
+        end
+        return "|cff66ccff" .. x .. "|r"
+    end))
+    return txt, premier
+end
+
+local function CleCD(id) return ADB.db.classe .. ":" .. id end
+
+function ADB.TalCD(n) return ADB.db.talents.cd[CleCD(n.id)] or 0 end
+
+function ADB.TalTickCD(unite)
+    local cd, arbres = ADB.db.talents.cd, ADB.db.talents.arbres
+    for cle, v in pairs(cd) do
+        local classe, id = cle:match("^(.-):(%d+)$")
+        local a = classe and arbres[classe]
+        local n = ADB.TalNoeudDepuisId(a, tonumber(id))
+        if not n then
+            cd[cle] = nil
+        elseif TAL.LIMITES[n.lim][3] == unite then
+            if v <= 1 then cd[cle] = nil else cd[cle] = v - 1 end
+        end
+    end
+end
+
+function ADB.TalResetTours()
+    local cd, arbres = ADB.db.talents.cd, ADB.db.talents.arbres
+    for cle in pairs(cd) do
+        local classe, id = cle:match("^(.-):(%d+)$")
+        local a = classe and arbres[classe]
+        local n = ADB.TalNoeudDepuisId(a, tonumber(id))
+        if not n or TAL.LIMITES[n.lim][3] == "t" then cd[cle] = nil end
+    end
+end
+
+function ADB.TalRepos()
+    ADB.TalTickCD("r")
+    ADB.TalRafraichirBarre()
+end
+
+function ADB.TalEtat(n)
+    local d = ADB.GetStatBlock(ADB.playerName)
+    if n.mana > 0 and d.pm < n.mana then
+        return false, format("Mana insuffisant (%d / %d requis).", d.pm, n.mana), "mana"
+    end
+    if n.coutPV > 0 and d.pv < n.coutPV then
+        return false, format("PV insuffisants (%d / %d requis).", d.pv, n.coutPV)
+    end
+    local cd = ADB.TalCD(n)
+    if cd > 0 then
+        local u = TAL.LIMITES[n.lim][3]
+        return false, format("Compétence en recharge : %d %s restant%s.", cd,
+            u == "t" and (cd > 1 and "tours" or "tour") or "repos", ""), "cd"
+    end
+    return true
+end
+
+function ADB.TalPhase(ph)
+    if not ADB.db or not ADB.db.talents then return end
+    if ph == "PLAYER_TURN" and not ADB.EstMJ() then
+        ADB.TalTickCD("t")
+        if ADB.saut then
+            ADB.saut = nil
+            ADB.Print("Vous avez joué en avance avec une compétence de réaction, vous ne pouvez jouer ce tour-ci.")
+            ADB.FinTourJoueur()
+        end
+    elseif ph == "IDLE" then
+        ADB.TalResetTours()
+        ADB.saut, ADB.tourPasse = nil, nil
+    end
+    ADB.TalRafraichirBarre()
+end
+
+------------------------------------------------------------------------------
+-- 3. INFO-BULLES
+------------------------------------------------------------------------------
+function ADB.TalInfobulle(owner, n, mode, G, ancre)
+    G = G or GameTooltip
+    G:SetOwner(owner, ancre or "ANCHOR_RIGHT")
+    G:AddLine(n.nom, 1, 0.82, 0)
+    G:AddLine(TAL.TYPES[n.typ], 0.7, 0.7, 0.7)
+    if n.spe then G:AddLine("Spécialisation (une seule à la fois)", 0.8, 0.5, 1) end
+    if n.stat > 1 then G:AddLine("Statistique : " .. TAL.STATS[n.stat], 1, 1, 1) end
+    G:AddLine("Interaction : " .. TAL.INTERS[n.inter], 1, 1, 1)
+    G:AddLine("Élément : " .. TAL.ELEMS[n.elem], 1, 1, 1)
+    if n.typ == 1 then
+        if n.mana > 0 then G:AddLine("Coût : " .. n.mana .. " Mana", 0.3, 0.55, 1) end
+        if n.coutPV > 0 then G:AddLine("Coût : " .. n.coutPV .. " PV", 1, 0.3, 0.3) end
+        if n.portee > 0 then G:AddLine("Portée : " .. n.portee .. " m", 1, 1, 1) end
+        if n.precision > 0 then G:AddLine("Précision : " .. n.precision, 1, 1, 1) end
+        if n.zoe > 0 then G:AddLine("Zone d'effet : " .. n.zoe .. " m", 1, 1, 1) end
+        if n.lim ~= 5 then G:AddLine("Limite d'utilisation : " .. TAL.LIMITES[n.lim][1], 1, 1, 1) end
+        if n.reac then G:AddLine("Compétence utilisable en Réaction", 1, 0.5, 0.1) end
+        if n.bonus then G:AddLine("Compétence utilisant l'Action Bonus", 1, 0.5, 0.1) end
+    end
+    local barre = (mode == "barre")
+    local txt = ADB.TalTexte(n.desc, barre, barre and ADB.TalMult(n) or 1, barre and ADB.TalBonusSpe(n) or 0)
+    if txt ~= "" then
+        G:AddLine(" ")
+        G:AddLine(txt, 1, 0.9, 0.6, true)
+    end
+    return G
+end
+
+function ADB.TalSurvol(b)
+    local a = ADB.TalArbre(ADB.talVue)
+    local n = a and a.noeuds[b.id]
+    if not n then return end
+    local f = ADB.talFrame
+    local propre = ADB.talVue == ADB.db.classe
+    local G = ADB.TalInfobulle(b, n, "arbre")
+    local ap = Appris(ADB.db.classe)
+    if #n.req > 0 then
+        G:AddLine(" ")
+        for _, r in ipairs(n.req) do
+            local p = a.noeuds[r]
+            if p then
+                local ok = propre and ap[r]
+                G:AddLine("Prérequis : " .. p.nom, ok and 0.3 or 1, ok and 1 or 0.3, 0.3)
+            end
+        end
+    end
+    G:AddLine(" ")
+    if f.edition then
+        G:AddLine("Clic : sélectionner", 0.6, 0.6, 0.6)
+    elseif ADB.talVue == ADB.MJ_CLASSE then
+        G:AddLine("Clic gauche : déclencher (annonce au chat)", 1, 0.5, 0.1)
+    elseif propre then
+        if ap[n.id] then
+            G:AddLine("Appris - clic droit : désapprendre", 0.3, 1, 0.3)
+        elseif ADB.TalPeutApprendre(n) then
+            G:AddLine("Clic gauche : apprendre (1 point)", 0.3, 1, 0.3)
+        else
+            G:AddLine("Verrouillé (prérequis, points ou spécialisation)", 1, 0.3, 0.3)
+        end
+    end
+    G:Show()
+end
+
+------------------------------------------------------------------------------
+-- 4. SYNCHRONISATION DES ARBRES (MJ -> joueurs)
+--   TN;ci;id;x;y;typ;stat;inter;elem;mana;lim;reac;bonus;req;icone;nom
+--   TD;ci;id;n;total;morceau
+--   TF;ci;id;coutPV;portee;precision;zoe;spe;specX;specY;tags
+--   TX;ci;id  TS;ci  TE;ci  TQ;ci  HQ / HR (validation hors-tour)
+------------------------------------------------------------------------------
+local function Decouper(s, taille)
+    local t, i = {}, 1
+    while i <= #s do
+        local j = min(i + taille - 1, #s)
+        while j < #s and j > i and (s:byte(j + 1) or 0) >= 0x80 and (s:byte(j + 1) or 0) < 0xC0 do
+            j = j - 1
+        end
+        t[#t + 1] = s:sub(i, j)
+        i = j + 1
+    end
+    return t
+end
+
+local function MessagesNoeud(ci, n)
+    local msgs = { format("TN;%d;%d;%d;%d;%d;%d;%d;%d;%d;%d;%d;%d;%s;%s;%s",
+        ci, n.id, n.x, n.y, n.typ, n.stat, n.inter, n.elem, n.mana, n.lim,
+        n.reac and 1 or 0, n.bonus and 1 or 0, table.concat(n.req, ","), n.icon, Encoder(n.nom)) }
+    local ch = Decouper(n.desc, 70)
+    for i, s in ipairs(ch) do
+        msgs[#msgs + 1] = format("TD;%d;%d;%d;%d;%s", ci, n.id, i, #ch, Encoder(s))
+    end
+    msgs[#msgs + 1] = format("TF;%d;%d;%d;%d;%d;%d;%d;%s;%s;%s;%d", ci, n.id, n.coutPV, n.portee,
+        n.precision, n.zoe, n.spe and 1 or 0, n.specX, n.specY, table.concat(n.tags, ","), n.buffId or 0)
+    return msgs
+end
+
+function ADB.TalEnfiler(msg)
+    local f = ADB.talFile
+    f[#f + 1] = msg
+    if not ADB.talTicker then
+        ADB.talTicker = C_Timer.NewTicker(0.12, function()
+            local m = tremove(ADB.talFile, 1)
+            if m then ADB.Envoyer(m) end
+            if #ADB.talFile == 0 and ADB.talTicker then
+                ADB.talTicker:Cancel()
+                ADB.talTicker = nil
+            end
+        end)
+    end
+end
+
+function ADB.TalDiffuserClasse(ci)
+    if not ADB.EstMJ() or not ADB.CLASSES[ci] then return end
+    local a = ADB.db.talents.arbres[ADB.CLASSES[ci][1]]
+    ADB.TalEnfiler(format("TS;%d", ci))
+    if a then
+        local ids = {}
+        for id in pairs(a.noeuds) do ids[#ids + 1] = id end
+        table.sort(ids)
+        for _, id in ipairs(ids) do
+            for _, m in ipairs(MessagesNoeud(ci, a.noeuds[id])) do ADB.TalEnfiler(m) end
+        end
+    end
+    ADB.TalEnfiler(format("TE;%d", ci))
+end
+
+function ADB.TalPlanifierClasse(ci)
+    if ADB.talPlan[ci] then return end
+    ADB.talPlan[ci] = true
+    C_Timer.After(1, function()
+        ADB.talPlan[ci] = nil
+        ADB.TalDiffuserClasse(ci)
+    end)
+end
+
+function ADB.TalPlanifierNoeud(ci, id)
+    if not ci or not ADB.EstMJ() then return end
+    ADB.talNoeudsPlan[ci .. ":" .. id] = { ci, id }
+    if ADB.talNoeudsTimer then return end
+    ADB.talNoeudsTimer = true
+    C_Timer.After(0.8, function()
+        ADB.talNoeudsTimer = false
+        if ADB.EstMJ() then
+            for _, p in pairs(ADB.talNoeudsPlan) do
+                local a = ADB.db.talents.arbres[ADB.CLASSES[p[1]][1]]
+                local n = a and a.noeuds[p[2]]
+                if n then
+                    for _, m in ipairs(MessagesNoeud(p[1], n)) do ADB.TalEnfiler(m) end
+                end
+            end
+        end
+        wipe(ADB.talNoeudsPlan)
+    end)
+end
+
+function ADB.TalDemanderArbre()
+    if not ADB.db or not ADB.talDemande then return end
+    if not IsInGroup() then
+        ADB.talSource = nil
+        if next(ADB.talDemande) then wipe(ADB.talDemande) end
+        return
+    end
+    if ADB.EstMJ() then return end
+    local mj = ADB.NomMJ()
+    if mj ~= ADB.talSource then
+        ADB.talSource = mj
+        wipe(ADB.talDemande)
+    end
+    if not mj then return end
+    local classe = ADB.db.classe
+    if ADB.talDemande[classe] then return end
+    ADB.talDemande[classe] = true
+    local ci = ADB.TalIndexClasse(classe)
+    C_Timer.After(2, function()
+        if ci and IsInGroup() and not ADB.EstMJ() then ADB.Envoyer("TQ;" .. ci) end
+    end)
+end
+
+function ADB.RecevoirTalent(cmd, nom, message)
+    local p = { strsplit(";", message) }
+
+    if cmd == "TQ" then
+        if ADB.EstMJ() then
+            local ci = tonumber(p[2])
+            if ci and ADB.CLASSES[ci] then ADB.TalPlanifierClasse(floor(ci)) end
+        end
+        return
+    elseif cmd == "HQ" then
+        if ADB.EstMJ() then
+            local jeton = tonumber(p[2])
+            if not jeton then return end
+            local nt = Net(Decoder(p[4] or ""))
+            nt = nt .. (p[6] == "F" and " (recharge / mana)" or " (hors-tour)")
+            StaticPopup_Show("ADB_TAL_VALIDATION", ADB.NomAffiche(nom), nt,
+                { joueur = nom, jeton = floor(jeton) })
+        end
+        return
+    elseif cmd == "HR" then
+        if ADB.EstNomMJ(nom) and p[2] == ADB.playerName then
+            local jeton = tonumber(p[3])
+            local att = jeton and ADB.talAttente[jeton]
+            if att then
+                ADB.talAttente[jeton] = nil
+                if p[4] == "1" then
+                    local n = ADB.TalNoeudPropre(att.id)
+                    if n then
+                        local enTour = att.force and ADB.phase == "PLAYER_TURN" and not ADB.tourPasse
+                        if ADB.TalExecuter(n, att, not enTour) and enTour and not n.bonus then
+                            ADB.FinTourJoueur()
+                        end
+                    end
+                else
+                    ADB.Print("Le MJ a refusé l'utilisation de la compétence.")
+                end
+            end
+        end
+        return
+    end
+
+    if ADB.EstMJ() or not ADB.EstNomMJ(nom) then return end
+    local ci = tonumber(p[2])
+    local classe = ci and ADB.CLASSES[floor(ci)] and ADB.CLASSES[floor(ci)][1]
+    if not classe or (classe ~= ADB.db.classe and classe ~= ADB.EQUIP_CLASSE) then return end
+    local a = ADB.TalArbre(classe, true)
+
+    if cmd == "TS" then
+        for _, n in pairs(a.noeuds) do n.perime = true end
+    elseif cmd == "TE" then
+        for id, n in pairs(a.noeuds) do
+            if n.perime then a.noeuds[id] = nil end
+        end
+    elseif cmd == "TX" then
+        a.noeuds[floor(tonumber(p[3]) or 0)] = nil
+    elseif cmd == "TN" then
+        local req = {}
+        for s in (p[14] or ""):gmatch("%d+") do req[#req + 1] = tonumber(s) end
+        local n = ValiderNoeud({
+            id = p[3],
+            x = p[4],
+            y = p[5],
+            typ = p[6],
+            stat = p[7],
+            inter = p[8],
+            elem = p[9],
+            mana = p[10],
+            lim = p[11],
+            reac = (p[12] == "1"),
+            bonus = (p[13] == "1"),
+            req = req,
+            icon = p[15],
+            nom = Decoder(p[16] or ""),
+            desc = ""
+        })
+        if n then
+            a.noeuds[n.id] = n
+            a.prochain = max(a.prochain, n.id + 1)
+        end
+    elseif cmd == "TD" then
+        local n = a.noeuds[floor(tonumber(p[3]) or 0)]
+        local idx, tot = tonumber(p[4]), tonumber(p[5])
+        if n and idx and tot and tot >= 1 and tot <= 40 and idx >= 1 and idx <= tot then
+            n.dp = n.dp or {}
+            n.dp[floor(idx)] = Decoder(p[6] or "")
+            local complet = true
+            for i = 1, tot do
+                if not n.dp[i] then
+                    complet = false
+                    break
+                end
+            end
+            if complet then
+                n.desc = NetDesc(table.concat(n.dp, "", 1, tot))
+                n.dp = nil
+            end
+        end
+    elseif cmd == "TF" then
+        local n = a.noeuds[floor(tonumber(p[3]) or 0)]
+        if n then
+            Extras(n, {
+                coutPV = p[4],
+                portee = p[5],
+                precision = p[6],
+                zoe = p[7],
+                spe = (p[8] == "1"),
+                specX = p[9],
+                specY = p[10],
+                tags = p[11],
+                buffId = p[12]
+            })
+        end
+    end
+    ADB.TalRafraichir()
+end
+
+------------------------------------------------------------------------------
+-- 5. UTILISATION D'UN TALENT ACTIF
+------------------------------------------------------------------------------
+function ADB.TalCibleNom()
+    if not UnitExists("target") then return nil end
+    local nom = UnitName("target")
+    if UnitIsPlayer("target") and (nom == ADB.playerName or ADB.roster[nom]) then
+        return ADB.NomAffiche(nom)
+    end
+    return nom
+end
+
+local function Annoncer(txt)
+    for _, s in ipairs(Decouper(txt, 240)) do ADB.AnnoncerChat(s) end
+end
+
+local function NomsListe(l)
+    local t = {}
+    for _, e in ipairs(l or {}) do t[#t + 1] = e.nom end
+    return table.concat(t, ", ")
+end
+
+-- data = { id, cible (nom affiche), cibles (liste d'entrees k/id/nom) }
+function ADB.TalExecuter(n, data, horsTour)
+    data = data or {}
+    local ok, raison, code = ADB.TalEtat(n)
+    if not ok and not (data.force and code) then
+        ADB.Print(raison)
+        return false
+    end
+
+    if n.portee > 0 then
+        if not UnitExists("target") then
+            ADB.Print(format("Cible requise (portée : %dm).", n.portee))
+            return false
+        end
+        local d = ADB.Distance("target")
+        if d and d > n.portee then
+            local m = format("Cible trop éloignée. Portée : %dm, Distance actuelle : %dm", n.portee, floor(d + 0.5))
+            ADB.Print(m)
+            UIErrorsFrame:AddMessage(m, 1, 0.3, 0.3)
+            return false
+        end
+    end
+
+    local db = ADB.db
+    db.pm = max(0, db.pm - n.mana)
+    if n.coutPV > 0 then db.pv = max(0, db.pv - n.coutPV) end
+    local L = TAL.LIMITES[n.lim]
+    if L[2] > 0 then db.talents.cd[CleCD(n.id)] = L[2] end
+
+    local qui = ADB.NomAffiche(ADB.playerName)
+    local cibles = data.cibles
+    if (not cibles or #cibles == 0) and not data.cible and n.inter >= 2 and n.inter <= 3 then
+        cibles = { { k = "P", id = ADB.playerName, nom = qui } }
+    end
+    local noms = (cibles and #cibles > 0) and NomsListe(cibles) or data.cible
+    local msg = format("%s a utilisé %s", qui, ADB.LienTexte(n)) ..
+        ((noms and noms ~= "") and (" sur " .. noms) or "") .. "."
+    if n.coutPV > 0 then msg = msg .. format(" (coût : %d PV)", n.coutPV) end
+
+    local _, val = ADB.TalTexte(n.desc, true, ADB.TalMult(n), ADB.TalBonusSpe(n))
+    local bp, bc, bd = ADB.BufBonus("P:" .. ADB.playerName)
+    if val and n.inter == 1 then val = floor(val * bd + 0.5) end
+    local effet = val and n.inter <= 3
+    local mult, echec, critEchec = 1, false, false
+
+    if n.precision > 0 then
+        local r, lib, c, m, e, ce = ADB.Jet(n.precision, bp, bc)
+        mult, echec, critEchec = m, e, ce
+        msg = msg .. format(" Jet de précision : %d (%s).", r, lib)
+        UIErrorsFrame:AddMessage(format("%d - %s", r, lib), c[1], c[2], c[3])
+    end
+
+    if echec then
+        msg = msg .. " La compétence échoue."
+        if critEchec then
+            if effet then
+                ADB.AppliquerValeur(ADB.playerName, "pv", db.pv - val, true)
+                msg = msg .. format(" Effet négatif : %s perd %d PV.", qui, val)
+            else
+                msg = msg .. " Effet négatif (à la discrétion du MJ)."
+            end
+        end
+    else
+        if effet then
+            local v = val * mult
+            local txt = ({ " La compétence inflige %d dégâts.", " La compétence a rendu %d points de vie.",
+                " La compétence a procuré %d de bouclier." })[n.inter]
+            msg = msg .. format(txt, v) .. (mult > 1 and " (effet doublé)" or "")
+            if cibles and #cibles > 0 then ADB.EnvoyerEffets(cibles, n.inter, v) end
+        end
+        if (n.buffId or 0) > 0 then ADB.BufDepuisTalent(n, cibles) end
+        local s = ADB.TalSpeActive()
+        if s and s.specY ~= "" and ADB.TalATag(n, s.specY) then
+            local g = max(1, floor(ADB.TalMult(n) + 0.5))
+            local d = ADB.GetStatBlock(ADB.playerName)
+            db.pm = min(d.pmMax, db.pm + g)
+            msg = msg .. format(" Regain de mana : +%d PM.", g)
+        end
+    end
+
+    if data.force then
+        msg = msg .. " (validé par le MJ)"
+    elseif horsTour then
+        msg = msg .. " (hors-tour, validé par le MJ)"
+    end
+    Annoncer(msg)
+    ADB.ApresChangementLocal()
+    return true
+end
+
+function ADB.MJDeclencher(n)
+    local ci = ADB.TalIndexClasse(ADB.MJ_CLASSE)
+    local cibles
+    if UnitExists("target") then
+        if n.zoe > 0 then
+            cibles = ADB.ZoneCibles(n.zoe / 2)
+        else
+            local e = ADB.EntreeUnite("target")
+            cibles = e and { e } or nil
+        end
+    end
+    local noms = NomsListe(cibles)
+    local _, val = ADB.TalTexte(n.desc, true, 1, 0)           -- [n] brut, sans mult. de stat du MJ
+    local msg = "[MJ] " .. ADB.LienTexte(n, ci) .. (noms ~= "" and (" sur " .. noms) or "") .. "."
+    if val and n.inter <= 3 then
+        msg = msg .. format(({ " Inflige %d dégâts.", " Rend %d PV.", " Procure %d de bouclier." })[n.inter], val)
+        if cibles and #cibles > 0 then ADB.EnvoyerEffets(cibles, n.inter, val) end
+    end
+    Annoncer(msg)
+    if (n.buffId or 0) > 0 and cibles and #cibles > 0 then ADB.BufDepuisTalent(n, cibles) end
+    local plain = n.desc:gsub("[%[%]]", "")
+    if plain ~= "" then Annoncer(plain) end
+end
+
+function ADB.TalApresConfirmation(data)
+    local n = data and ADB.TalNoeudPropre(data.id)
+    if not n then return end
+    if ADB.phase == "PLAYER_TURN" and not ADB.tourPasse then
+        if ADB.TalExecuter(n, data, false) and not n.bonus then
+            ADB.FinTourJoueur()
+        end
+    else
+        StaticPopup_Show("ADB_TAL_HORSTOUR", n.nom, nil, data)
+    end
+end
+
+function ADB.TalDemanderMJ(data, force)
+    local n = data and ADB.TalNoeudPropre(data.id)
+    if not n then return end
+    if not IsInGroup() or not ADB.talSource then
+        ADB.Print("Aucun MJ disponible pour valider cette action.")
+        return
+    end
+    ADB.talJeton = (ADB.talJeton or 0) + 1
+    ADB.talAttente[ADB.talJeton] = data
+    ADB.Envoyer(format("HQ;%d;%d;%s;%s;%s", ADB.talJeton, n.id, Encoder(n.nom),
+        Encoder(data.cible or ""), force and "F" or ""))
+    ADB.Print("Demande envoyée au MJ pour « " .. n.nom .. " ». En attente de validation...")
+end
+
+function ADB.TalHorsTour(data)
+    local n = data and ADB.TalNoeudPropre(data.id)
+    if not n then return end
+    if n.reac then
+        if ADB.TalExecuter(n, data, false) then
+            ADB.saut = true
+            ADB.Print("Compétence de réaction utilisée en avance : votre prochain tour sera sauté.")
+        end
+        return
+    end
+    ADB.TalDemanderMJ(data)
+end
+
+StaticPopupDialogs["ADB_TAL_UTILISER"] = {
+    text = "Utiliser la compétence %s%s ?",
+    button1 = YES,
+    button2 = NO,
+    timeout = 0,
+    whileDead = 1,
+    hideOnEscape = 1,
+    preferredIndex = 3,
+    OnAccept = function(self, data) ADB.TalApresConfirmation(data) end,
+}
+StaticPopupDialogs["ADB_TAL_HORSTOUR"] = {
+    text = "Ce n'est pas votre tour (ou vous l'avez déjà passé).\nUtiliser quand même %s ?",
+    button1 = YES,
+    button2 = NO,
+    timeout = 0,
+    whileDead = 1,
+    hideOnEscape = 1,
+    preferredIndex = 3,
+    OnAccept = function(self, data) ADB.TalHorsTour(data) end,
+}
+StaticPopupDialogs["ADB_TAL_VALIDATION"] = {
+    text = "%s demande à utiliser « %s ».\nValider ?",
+    button1 = "Valider",
+    button2 = "Refuser",
+    timeout = 0,
+    whileDead = 1,
+    hideOnEscape = 1,
+    preferredIndex = 3,
+    OnAccept = function(self, data)
+        if data and ADB.EstMJ() then ADB.Envoyer(format("HR;%s;%d;1", data.joueur, data.jeton)) end
+    end,
+    OnCancel = function(self, data, reason)
+        if data and reason == "clicked" and ADB.EstMJ() then
+            ADB.Envoyer(format("HR;%s;%d;0", data.joueur, data.jeton))
+        end
+    end,
+}
+StaticPopupDialogs["ADB_TAL_RESET"] = {
+    text = "Réinitialiser tous vos talents appris ?",
+    button1 = YES,
+    button2 = NO,
+    timeout = 0,
+    whileDead = 1,
+    hideOnEscape = 1,
+    preferredIndex = 3,
+    OnAccept = function()
+        wipe(Appris(ADB.db.classe))
+        ADB.TalRafraichir()
+    end,
+}
+StaticPopupDialogs["ADB_TAL_FORCE"] = {
+    text = "Action interdite. Confirmer et envoyer la demande au MJ ?",
+    button1 = YES,
+    button2 = NO,
+    timeout = 0,
+    whileDead = 1,
+    hideOnEscape = 1,
+    preferredIndex = 3,
+    OnAccept = function(self, data) if data then ADB.TalDemanderMJ(data, true) end end,
+}
+
+------------------------------------------------------------------------------
+-- 6. BARRE D'ACTION (visible uniquement en combat, hors MJ)
+------------------------------------------------------------------------------
+local function SurvolBarre(b)
+    local n = ADB.TalNoeudPropre(b.id)
+    if not n then return end
+    local G = ADB.TalInfobulle(b, n, "barre")
+    local ok, raison, code = ADB.TalEtat(n)
+    if not ok then
+        G:AddLine(" ")
+        G:AddLine(raison, 1, 0.2, 0.2, true)
+        if code then G:AddLine("Clic : demander l'autorisation du MJ", 1, 0.6, 0.1, true) end
+    end
+    G:Show()
+end
+
+function ADB.TalClicBarre(b)
+    local n = ADB.TalNoeudPropre(b.id)
+    if not n then return end
+    local ok, raison, code = ADB.TalEtat(n)
+    if not ok and not code then
+        UIErrorsFrame:AddMessage(raison, 1, 0.3, 0.3)
+        return
+    end
+    local data = { id = n.id, cible = ADB.TalCibleNom() }
+    if UnitExists("target") then
+        if n.zoe > 0 then
+            data.cibles = ADB.ZoneCibles(n.zoe / 2)
+        else
+            local e = ADB.EntreeUnite("target")
+            if e then data.cibles = { e } end
+        end
+    end
+    if not ok then
+        data.force = true
+        StaticPopup_Show("ADB_TAL_FORCE", nil, nil, data)
+        return
+    end
+    local suf = data.cible and (" sur " .. data.cible) or ""
+    if n.zoe > 0 then
+        local l = NomsListe(data.cibles)
+        suf = suf .. format("\nZone %g m - touchés : %s", n.zoe / 2, l ~= "" and l or "aucun")
+    end
+    StaticPopup_Show("ADB_TAL_UTILISER", n.nom, suf, data)
+end
+
+local function CreerBtnBarre(i)
+    local b = CreateFrame("Button", nil, ADB.barre)
+    b:SetSize(40, 40)
+    b.tex = b:CreateTexture(nil, "ARTWORK")
+    b.tex:SetAllPoints()
+    b.tex:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+    b.noir = b:CreateTexture(nil, "OVERLAY")
+    b.noir:SetAllPoints()
+    b.noir:SetColorTexture(0, 0, 0, 0.55)
+    b.cd = b:CreateFontString(nil, "OVERLAY", "NumberFontNormalLarge")
+    b.cd:SetPoint("CENTER")
+    b.flag = b:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    b.flag:SetPoint("TOPLEFT", 2, -2)
+    b:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
+    b:SetScript("OnClick", ADB.TalClicBarre)
+    b:SetScript("OnEnter", SurvolBarre)
+    b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    ADB.barre.btns[i] = b
+    return b
+end
+
+function ADB.TalCreerBarre()
+    local b = CreateFrame("Frame", "ADBTalentBar", UIParent, "BackdropTemplate")
+    b:SetFrameStrata("MEDIUM")
+    b:SetPoint("BOTTOM", UIParent, "BOTTOM", 0, 150)
+    b:SetSize(60, 60)
+    ADB.AppliquerFond(b)
+    b.btns = {}
+    b:Hide()
+    ADB.barre = b
+end
+
+function ADB.TalRafraichirBarre()
+    local b = ADB.barre
+    if not b or not ADB.db or not ADB.db.talents then return end
+    if ADB.phase == "IDLE" or ADB.EstMJ() then
+        b:Hide()
+        return
+    end
+    local actifs = ADB.TalActifs()
+    local nb = #actifs
+    if nb == 0 then
+        b:Hide()
+        return
+    end
+    local par = 12
+    b:SetSize(min(nb, par) * 44 + 12, math.ceil(nb / par) * 44 + 12)
+    for i, n in ipairs(actifs) do
+        local btn = b.btns[i] or CreerBtnBarre(i)
+        btn:ClearAllPoints()
+        btn:SetPoint("TOPLEFT", b, "TOPLEFT", 8 + ((i - 1) % par) * 44, -8 - floor((i - 1) / par) * 44)
+        btn.id = n.id
+        btn.tex:SetTexture(IconeTex(n.icon))
+        local ok = ADB.TalEtat(n)
+        btn.tex:SetDesaturated(not ok)
+        btn.noir:SetShown(not ok)
+        local cd = ADB.TalCD(n)
+        btn.cd:SetText(cd > 0 and (cd .. (TAL.LIMITES[n.lim][3] == "t" and "t" or "r")) or "")
+        btn.flag:SetText((n.reac and "R" or "") .. (n.bonus and "B" or ""))
+        btn:Show()
+    end
+    for i = nb + 1, #b.btns do b.btns[i]:Hide() end
+    b:Show()
+end
+
+------------------------------------------------------------------------------
+-- 7. FENETRE D'ARBRE (joueur + editeur MJ)
+------------------------------------------------------------------------------
+local function SelNode()
+    local f = ADB.talFrame
+    local a = f and ADB.TalArbre(ADB.talVue)
+    return a and f.sel and a.noeuds[f.sel] or nil
+end
+
+local function Modif(champ, v)
+    local n = SelNode()
+    if not n or not ADB.PeutEditerTalents() then return end
+    n[champ] = v
+    if champ == "typ" then
+        if v == 2 then
+            n.mana, n.lim, n.reac, n.bonus = 0, 5, false, false
+            n.coutPV, n.portee, n.precision, n.zoe = -1, -1, -1, -1
+        else
+            n.spe, n.specX, n.specY = false, "", ""
+        end
+    end
+    ADB.TalPlanifierNoeud(ADB.TalIndexClasse(ADB.talVue), n.id)
+    ADB.TalDessiner()
+end
+
+local function Drop(nom, parent, x, y, w, liste, get, set)
+    local d = CreateFrame("Frame", nom, parent, "UIDropDownMenuTemplate")
+    d:SetPoint("TOPLEFT", x, y)
+    UIDropDownMenu_SetWidth(d, w)
+    UIDropDownMenu_Initialize(d, function(self, niveau)
+        for i, lbl in ipairs(liste()) do
+            local info = UIDropDownMenu_CreateInfo()
+            info.text = lbl
+            info.checked = (get() == i)
+            info.func = function()
+                UIDropDownMenu_SetText(d, lbl)
+                set(i, lbl)
+            end
+            UIDropDownMenu_AddButton(info, niveau)
+        end
+    end)
+    d.Maj = function() UIDropDownMenu_SetText(d, liste()[get()] or "") end
+    return d
+end
+
+local function ChampNum(parent, lbl, lx, ex, y, champ, lettres, maxv)
+    Etiq(parent, lbl, lx, y - 3)
+    local e = Saisie(parent, ex, y, 44, lettres, true)
+    e:SetScript("OnTextChanged", function(self, user)
+        if user then
+            local v = tonumber(self:GetText())
+            Modif(champ, v and Borner(floor(v), -1, maxv) or -1)
+        end
+    end)
+    return e
+end
+
+local function Requiert(a, id, cible, vus)
+    vus = vus or {}
+    if vus[id] then return false end
+    vus[id] = true
+    local n = a.noeuds[id]
+    if not n then return false end
+    for _, r in ipairs(n.req) do
+        if r == cible or Requiert(a, r, cible, vus) then return true end
+    end
+    return false
+end
+
+function ADB.TalBasculerLien(pid)
+    local a, n = ADB.TalArbre(ADB.talVue), SelNode()
+    if not a or not n or pid == n.id or not a.noeuds[pid] then return end
+    for i, r in ipairs(n.req) do
+        if r == pid then
+            tremove(n.req, i)
+            return true
+        end
+    end
+    if #n.req >= TAL.MAX_REQ then
+        ADB.Print("Maximum " .. TAL.MAX_REQ .. " prérequis par talent.")
+        return
+    end
+    if Requiert(a, pid, n.id) then
+        ADB.Print("Lien impossible : dépendance circulaire.")
+        return
+    end
+    n.req[#n.req + 1] = pid
+    return true
+end
+
+function ADB.TalSupprimer()
+    local n, a = SelNode(), ADB.TalArbre(ADB.talVue)
+    if not n or not a then return end
+    local ci = ADB.TalIndexClasse(ADB.talVue)
+    a.noeuds[n.id] = nil
+    for _, m in pairs(a.noeuds) do
+        for i = #m.req, 1, -1 do
+            if m.req[i] == n.id then
+                tremove(m.req, i)
+                ADB.TalPlanifierNoeud(ci, m.id)
+            end
+        end
+    end
+    if ADB.EstMJ() then ADB.TalEnfiler(format("TX;%d;%d", ci, n.id)) end
+    ADB.talFrame.sel = nil
+    ADB.TalDessiner()
+end
+
+function ADB.TalClicNoeud(b, bouton)
+    local f = ADB.talFrame
+    local a = ADB.TalArbre(ADB.talVue)
+    local n = a and a.noeuds[b.id]
+    if not n then return end
+    if f.edition then
+        if f.mode == "lien" and f.sel and f.sel ~= n.id then
+            if ADB.TalBasculerLien(n.id) ~= nil then
+                ADB.TalPlanifierNoeud(ADB.TalIndexClasse(ADB.talVue), f.sel)
+            end
+            f.mode = nil
+        else
+            f.sel, f.mode = n.id, nil
+        end
+    elseif ADB.talVue == ADB.MJ_CLASSE then
+        if bouton == "LeftButton" and ADB.PeutEditerTalents() then ADB.MJDeclencher(n) end
+        return
+    elseif ADB.talVue == ADB.db.classe then
+        local ap = Appris(ADB.db.classe)
+        if bouton == "LeftButton" then
+            if ADB.TalPeutApprendre(n) then
+                ap[n.id] = true
+            elseif not ap[n.id] then
+                local s = n.spe and ADB.TalSpeActive()
+                if s then
+                    UIErrorsFrame:AddMessage("Une seule spécialisation à la fois : oubliez « " .. s.nom .. " » d'abord.",
+                        1, 0.3, 0.3)
+                else
+                    UIErrorsFrame:AddMessage("Talent verrouillé (prérequis ou points manquants).", 1, 0.3, 0.3)
+                end
+            end
+        elseif ap[n.id] then
+            for _, m in pairs(a.noeuds) do
+                if ap[m.id] then
+                    for _, r in ipairs(m.req) do
+                        if r == n.id then
+                            UIErrorsFrame:AddMessage("D'autres talents appris dépendent de celui-ci.", 1, 0.3, 0.3)
+                            return
+                        end
+                    end
+                end
+            end
+            ap[n.id] = nil
+        end
+    end
+    ADB.TalRafraichir()
+end
+
+function ADB.TalClicCase(c)
+    local f = ADB.talFrame
+    local a = ADB.TalArbre(ADB.talVue, true)
+    local ci = ADB.TalIndexClasse(ADB.talVue)
+    if f.mode == "deplacer" and f.sel and a.noeuds[f.sel] then
+        local n = a.noeuds[f.sel]
+        n.x, n.y = c.x, c.y
+        ADB.TalPlanifierNoeud(ci, n.id)
+        f.mode = nil
+    else
+        local id = a.prochain
+        a.prochain = id + 1
+        a.noeuds[id] = ValiderNoeud({ id = id, x = c.x, y = c.y, nom = "Nouveau talent", typ = 1 })
+        f.sel, f.mode = id, nil
+        ADB.TalPlanifierNoeud(ci, id)
+    end
+    ADB.TalDessiner()
+end
+
+local function CreerCases(f)
+    f.cases = {}
+    for y = 1, TAL.ROWS do
+        for x = 1, TAL.COLS do
+            local c = CreateFrame("Button", nil, f.canvas)
+            c:SetSize(TAL.CELL - 8, TAL.CELL - 8)
+            c:SetPoint("CENTER", f.canvas, "TOPLEFT", (x - 0.5) * TAL.CELL, -(y - 0.5) * TAL.CELL)
+            local t = c:CreateTexture(nil, "BACKGROUND")
+            t:SetAllPoints()
+            t:SetColorTexture(1, 1, 1, 0.07)
+            c:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
+            c.x, c.y = x, y
+            c:SetScript("OnClick", ADB.TalClicCase)
+            c:Hide()
+            f.cases[#f.cases + 1] = c
+        end
+    end
+end
+
+local function CreerBoutonNoeud(f)
+    local b = CreateFrame("Button", nil, f.canvas)
+    b:SetSize(TAL.ICON, TAL.ICON)
+    b.bord = b:CreateTexture(nil, "BACKGROUND")
+    b.bord:SetPoint("TOPLEFT", -2, 2)
+    b.bord:SetPoint("BOTTOMRIGHT", 2, -2)
+    b.tex = b:CreateTexture(nil, "ARTWORK")
+    b.tex:SetAllPoints()
+    b.tex:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+    b.marque = b:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    b.marque:SetPoint("BOTTOMRIGHT", -2, 2)
+    b:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
+    b:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    b:SetScript("OnClick", ADB.TalClicNoeud)
+    b:SetScript("OnEnter", ADB.TalSurvol)
+    b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    f.btns[#f.btns + 1] = b
+    return b
+end
+
+local function ListeClasses()
+    local t = {}
+    if ADB.PeutEditerTalents() then
+        for _, c in ipairs(ADB.CLASSES) do t[#t + 1] = c[1] end
+    else
+        t[1] = ADB.db.classe
+    end
+    return t
+end
+
+local function Num(e, v)
+    if not e:HasFocus() then e:SetText(v > 0 and tostring(v) or "") end
+end
+
+function ADB.TalMajPanneau()
+    local f = ADB.talFrame
+    local Ed, C = f.Ed, f.Ed.C
+    local ed = f.edition and true or false
+    f.BtnEdit:SetShown(ADB.PeutEditerTalents())
+    f.BtnEdit:SetText(ed and "Quitter l'éditeur" or "Mode éditeur")
+    f.BtnReset:SetShown(not ed)
+    f.Aide:SetText(f.mode == "lien" and "|cffffd100Cliquez le talent PRÉREQUIS.|r"
+        or f.mode == "deplacer" and "|cffffd100Cliquez une case vide.|r" or "")
+    Ed:SetShown(ed)
+    if not ed then return end
+    local n = SelNode()
+    Ed.Vide:SetShown(n == nil)
+    C:SetShown(n ~= nil)
+    if not n then return end
+    if not C.Nom:HasFocus() then C.Nom:SetText(n.nom) end
+    C.Icone:SetTexture(IconeTex(n.icon))
+    C.DTyp.Maj(); C.DStat.Maj(); C.DInter.Maj(); C.DElem.Maj()
+    C.Actif:SetShown(n.typ == 1)
+    C.Zone:SetShown(n.typ == 1)
+    C.Spec:SetShown(n.typ == 2)
+    if n.typ == 1 then
+        if not C.Mana:HasFocus() then C.Mana:SetText(n.mana) end
+        C.DLim.Maj()
+        C.Reac:SetChecked(n.reac)
+        C.Bonus:SetChecked(n.bonus)
+        Num(C.Cout, n.coutPV); Num(C.Port, n.portee); Num(C.Prec, n.precision); Num(C.Zoe, n.zoe)
+    else
+        C.Spe:SetChecked(n.spe)
+        if not C.SpeX:HasFocus() then C.SpeX:SetText(n.specX) end
+        if not C.SpeY:HasFocus() then C.SpeY:SetText(n.specY) end
+    end
+    if not C.Tags:HasFocus() then C.Tags:SetText(table.concat(n.tags, ",")) end
+    if not C.Desc:HasFocus() then C.Desc:SetText(n.desc) end
+end
+
+function ADB.TalDessiner()
+    local f = ADB.talFrame
+    if not f or not f:IsShown() or not ADB.db then return end
+    if not ADB.PeutEditerTalents() then
+        f.edition = false
+        ADB.talVue = ADB.db.classe
+    end
+    ADB.talVue = ADB.talVue or ADB.db.classe
+    local cl = ADB.talVue
+    local propre = (cl == ADB.db.classe)
+    local ed = f.edition and true or false
+    local a = ADB.TalArbre(cl)
+    local noeuds = a and a.noeuds or {}
+    local ap = Appris(ADB.db.classe)
+    if f.sel and not noeuds[f.sel] then f.sel = nil end
+
+    local liste, occ = {}, {}
+    for _, n in pairs(noeuds) do
+        liste[#liste + 1] = n
+        occ[(n.y - 1) * TAL.COLS + n.x] = true
+    end
+    table.sort(liste, function(p, q) return p.id < q.id end)
+
+    if ed and not f.cases then CreerCases(f) end
+    if f.cases then
+        for i, c in ipairs(f.cases) do c:SetShown(ed and not occ[i]) end
+    end
+
+    wipe(f.par)
+    for i, n in ipairs(liste) do
+        local b = f.btns[i] or CreerBoutonNoeud(f)
+        b.id = n.id
+        b:ClearAllPoints()
+        b:SetPoint("CENTER", f.canvas, "TOPLEFT", (n.x - 0.5) * TAL.CELL, -(n.y - 0.5) * TAL.CELL)
+        b.tex:SetTexture(IconeTex(n.icon))
+        local appris = propre and ap[n.id] and true or false
+        local ok = (propre and not appris and ADB.TalPeutApprendre(n)) or (cl == ADB.MJ_CLASSE and not ed)
+        local r, g, bl = 0.35, 0.35, 0.35
+        if ed then
+            r, g, bl = 0.8, 0.8, 0.8
+        elseif appris then
+            r, g, bl = 1, 0.82, 0
+        elseif ok then
+            r, g, bl = 0.3, 1, 0.3
+        end
+        if ed and f.sel == n.id then r, g, bl = 0.2, 0.9, 1 end
+        b.bord:SetColorTexture(r, g, bl, 1)
+        b.tex:SetDesaturated(not (ed or appris or ok))
+        b.marque:SetText(n.spe and "S" or (n.typ == 2 and "P" or ""))
+        b:Show()
+        f.par[n.id] = b
+    end
+    for i = #liste + 1, #f.btns do f.btns[i]:Hide() end
+
+    local k = 0
+    for _, n in ipairs(liste) do
+        for _, r in ipairs(n.req) do
+            local pb = f.par[r]
+            if pb then
+                k = k + 1
+                local l = f.lines[k]
+                if not l then
+                    l = f.canvas:CreateLine(nil, "ARTWORK")
+                    f.lines[k] = l
+                end
+                l:SetThickness(3)
+                l:SetStartPoint("CENTER", pb)
+                l:SetEndPoint("CENTER", f.par[n.id])
+                local pa, na = propre and ap[r], propre and ap[n.id]
+                if ed then
+                    l:SetColorTexture(0.7, 0.7, 0.95, 0.9)
+                elseif pa and na then
+                    l:SetColorTexture(1, 0.82, 0, 1)
+                elseif pa then
+                    l:SetColorTexture(0.3, 0.8, 0.3, 1)
+                else
+                    l:SetColorTexture(0.4, 0.4, 0.4, 1)
+                end
+                l:Show()
+            end
+        end
+    end
+    for i = k + 1, #f.lines do f.lines[i]:Hide() end
+
+    f.Vide:SetText((#liste == 0 and not ed) and "Aucun talent défini pour cette classe." or "")
+    if propre then
+        local u, t = ADB.TalPointsUtilises(), ADB.TalPointsTotal()
+        f.Pts:SetText(format("Points : |cffffd100%d|r / %d  (restants : %d)", u, t, t - u))
+    else
+        f.Pts:SetText(cl == ADB.MJ_CLASSE and "|cffffd100Compétences MJ : clic = déclencher|r"
+            or "|cffaaaaaaLecture seule (autre classe)|r")
+    end
+    f.DClasse.Maj()
+    ADB.TalMajPanneau()
+end
+
+function ADB.TalCreer()
+    local PX = 672
+    local f = FenetreBase("ADBTalentFrame", 950, 690, "Arbre de talents")
+    ADB.talFrame = f
+    f:SetPoint("CENTER", 0, 0)
+    f.btns, f.lines, f.par = {}, {}, {}
+    tinsert(UISpecialFrames, "ADBTalentFrame")
+
+    local sf = CreateFrame("ScrollFrame", "ADBTalScroll", f, "UIPanelScrollFrameTemplate")
+    sf:SetPoint("TOPLEFT", 14, -34)
+    sf:SetSize(TAL.COLS * TAL.CELL, 640)
+    local c = CreateFrame("Frame", nil, sf)
+    c:SetSize(TAL.COLS * TAL.CELL, TAL.ROWS * TAL.CELL)
+    sf:SetScrollChild(c)
+    f.canvas = c
+    local bg = c:CreateTexture(nil, "BACKGROUND")
+    bg:SetAllPoints()
+    bg:SetColorTexture(0.04, 0.03, 0.09, 0.9)
+    f.Vide = c:CreateFontString(nil, "OVERLAY", "GameFontDisable")
+    f.Vide:SetPoint("TOP", 0, -20)
+
+    Etiq(f, "Classe", PX, -40)
+    f.DClasse = Drop("ADBTalClasseDrop", f, PX + 36, -33, 150, ListeClasses,
+        function()
+            for i, l in ipairs(ListeClasses()) do
+                if l == ADB.talVue then return i end
+            end
+            return 1
+        end,
+        function(i, lbl)
+            ADB.talVue = lbl
+            f.sel, f.mode = nil, nil
+            ADB.TalDessiner()
+        end)
+    f.Pts = Etiq(f, "", PX, -76, "GameFontNormal")
+    f.BtnReset = Bouton(f, "Réinitialiser", PX, -98, 120, function() StaticPopup_Show("ADB_TAL_RESET") end)
+    f.BtnEdit = Bouton(f, "Mode éditeur", PX + 126, -98, 120, function()
+        f.edition = not f.edition
+        f.sel, f.mode = nil, nil
+        ADB.TalDessiner()
+    end)
+    f.Aide = Etiq(f, "", PX, -124, "GameFontNormalSmall")
+
+    local Ed = CreateFrame("Frame", nil, f)
+    Ed:SetSize(250, 540)
+    Ed:SetPoint("TOPLEFT", PX, -146)
+    f.Ed = Ed
+    Ed.Vide = Etiq(Ed, "Cliquez sur une case vide pour créer un talent, ou sur un talent pour le modifier.", 0, -10,
+        "GameFontHighlightSmall")
+    Ed.Vide:SetWidth(240)
+    Ed.Vide:SetJustifyV("TOP")
+    local C = CreateFrame("Frame", nil, Ed)
+    C:SetAllPoints()
+    Ed.C = C
+
+    local function Prop(champ, def)
+        local n = SelNode()
+        return n and n[champ] or def
+    end
+
+    Etiq(C, "Nom", 0, -4)
+    C.Nom = Saisie(C, 70, -1, 170, TAL.NOM_MAX)
+    C.Nom:SetScript("OnTextChanged", function(self, user)
+        if user then
+            local t = Net(self:GetText())
+            Modif("nom", t ~= "" and t or "Talent")
+        end
+    end)
+
+    Etiq(C, "Icône", 0, -36)
+    local ib = CreateFrame("Button", nil, C)
+    ib:SetSize(32, 32)
+    ib:SetPoint("TOPLEFT", 70, -28)
+    local ibg = ib:CreateTexture(nil, "BACKGROUND")
+    ibg:SetAllPoints()
+    ibg:SetColorTexture(0.4, 0.4, 0.4, 1)
+    C.Icone = ib:CreateTexture(nil, "ARTWORK")
+    C.Icone:SetPoint("TOPLEFT", 2, -2)
+    C.Icone:SetPoint("BOTTOMRIGHT", -2, 2)
+    C.Icone:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+    ib:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
+    ib:SetScript("OnClick", function()
+        ADB.OuvrirIcones(function(v)
+            v = tostring(v)
+            if #v == 0 or #v > 40 or v:find("[^%w_]") then v = "INV_Misc_QuestionMark" end
+            Modif("icon", v)
+        end)
+    end)
+    Etiq(C, "(cliquer pour choisir)", 110, -40, "GameFontDisableSmall")
+
+    Etiq(C, "Type", 0, -72)
+    C.DTyp = Drop("ADBTalTypDrop", C, 48, -66, 130, function() return TAL.TYPES end,
+        function() return Prop("typ", 1) end, function(i) Modif("typ", i) end)
+    Etiq(C, "Stat.", 0, -102)
+    C.DStat = Drop("ADBTalStatDrop", C, 48, -96, 130, function() return TAL.STATS end,
+        function() return Prop("stat", 1) end, function(i) Modif("stat", i) end)
+    Etiq(C, "Effet", 0, -132)
+    C.DInter = Drop("ADBTalInterDrop", C, 48, -126, 130, function() return TAL.INTERS end,
+        function() return Prop("inter", 4) end, function(i) Modif("inter", i) end)
+    Etiq(C, "Élément", 0, -162)
+    C.DElem = Drop("ADBTalElemDrop", C, 48, -156, 130, function() return TAL.ELEMS end,
+        function() return Prop("elem", 1) end, function(i) Modif("elem", i) end)
+
+    -- Actif : mana / limite / reaction / bonus
+    local A = CreateFrame("Frame", nil, C)
+    A:SetSize(250, 106)
+    A:SetPoint("TOPLEFT", 0, -192)
+    C.Actif = A
+    Etiq(A, "Coût mana", 0, -4)
+    C.Mana = Saisie(A, 80, -1, 50, 3, true)
+    C.Mana:SetScript("OnTextChanged", function(self, user)
+        if user then Modif("mana", Borner(floor(tonumber(self:GetText()) or 0), 0, TAL.MANA_MAX)) end
+    end)
+    Etiq(A, "Limite", 0, -34)
+    C.DLim = Drop("ADBTalLimDrop", A, 48, -28, 130,
+        function()
+            local t = {}
+            for i, l in ipairs(TAL.LIMITES) do t[i] = l[1] end
+            return t
+        end,
+        function() return Prop("lim", 5) end, function(i) Modif("lim", i) end)
+    C.Reac = CreateFrame("CheckButton", "ADBTalReacCheck", A, "UICheckButtonTemplate")
+    C.Reac:SetPoint("TOPLEFT", -4, -56)
+    _G["ADBTalReacCheckText"]:SetText("Réaction")
+    C.Reac:SetScript("OnClick", function(self) Modif("reac", self:GetChecked() and true or false) end)
+    C.Bonus = CreateFrame("CheckButton", "ADBTalBonusCheck", A, "UICheckButtonTemplate")
+    C.Bonus:SetPoint("TOPLEFT", -4, -82)
+    _G["ADBTalBonusCheckText"]:SetText("Action Bonus")
+    C.Bonus:SetScript("OnClick", function(self) Modif("bonus", self:GetChecked() and true or false) end)
+
+    -- Actif : cout PV / portee / precision / ZoE
+    local X = CreateFrame("Frame", nil, C)
+    X:SetSize(250, 56)
+    X:SetPoint("TOPLEFT", 0, -302)
+    C.Zone = X
+    C.Cout = ChampNum(X, "Coût PV", 0, 58, -1, "coutPV", 3, TAL.COUT_MAX)
+    C.Port = ChampNum(X, "Portée", 112, 158, -1, "portee", 3, TAL.POR_MAX)
+    C.Prec = ChampNum(X, "Précision", 0, 58, -27, "precision", 3, 100)
+    C.Zoe = ChampNum(X, "ZoE (m)", 112, 158, -27, "zoe", 3, TAL.ZOE_MAX)
+
+    -- Passif : specialisation
+    local S = CreateFrame("Frame", nil, C)
+    S:SetSize(250, 110)
+    S:SetPoint("TOPLEFT", 0, -192)
+    C.Spec = S
+    C.Spe = CreateFrame("CheckButton", "ADBTalSpeCheck", S, "UICheckButtonTemplate")
+    C.Spe:SetPoint("TOPLEFT", -4, -2)
+    _G["ADBTalSpeCheckText"]:SetText("Spécialisation")
+    C.Spe:SetScript("OnClick", function(self) Modif("spe", self:GetChecked() and true or false) end)
+    Etiq(S, "Tag X", 0, -36)
+    C.SpeX = Saisie(S, 50, -33, 190, 16)
+    C.SpeX:SetScript("OnTextChanged", function(self, user)
+        if user then Modif("specX", NetTag(self:GetText())) end
+    end)
+    Etiq(S, "Tag Y", 0, -62)
+    C.SpeY = Saisie(S, 50, -59, 190, 16)
+    C.SpeY:SetScript("OnTextChanged", function(self, user)
+        if user then Modif("specY", NetTag(self:GetText())) end
+    end)
+    Etiq(S, "X : +1 efficacité   Y : regain de mana", 0, -88, "GameFontDisableSmall")
+
+    -- Tags (invisibles pour les joueurs en jeu)
+    Etiq(C, "Tags", 0, -364)
+    C.Tags = Saisie(C, 40, -361, 205, 60)
+    C.Tags:SetScript("OnTextChanged", function(self, user)
+        if user then Modif("tags", NetTags(self:GetText())) end
+    end)
+
+    Etiq(C, "Description  ([2] = valeur dynamique)", 0, -388, "GameFontNormalSmall")
+    local cadre = CreateFrame("Frame", nil, C, "BackdropTemplate")
+    cadre:SetSize(250, 76)
+    cadre:SetPoint("TOPLEFT", 0, -404)
+    cadre:SetBackdrop({
+        bgFile = "Interface\\Buttons\\WHITE8X8",
+        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+        edgeSize = 10,
+        insets = { left = 3, right = 3, top = 3, bottom = 3 }
+    })
+    cadre:SetBackdropColor(0, 0, 0, 0.6)
+    local eb = CreateFrame("EditBox", nil, cadre)
+    eb:SetMultiLine(true)
+    eb:SetFontObject(ChatFontNormal)
+    eb:SetPoint("TOPLEFT", 6, -6)
+    eb:SetSize(238, 64)
+    eb:SetAutoFocus(false)
+    eb:SetMaxLetters(TAL.DESC_MAX)
+    eb:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    eb:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+    eb:SetScript("OnTextChanged", function(self, user)
+        if user then Modif("desc", NetDesc(self:GetText())) end
+    end)
+    C.Desc = eb
+
+    Bouton(C, "Prérequis", 0, -490, 80, function()
+        f.mode = (f.mode == "lien") and nil or "lien"
+        ADB.TalDessiner()
+    end)
+    Bouton(C, "Déplacer", 84, -490, 80, function()
+        f.mode = (f.mode == "deplacer") and nil or "deplacer"
+        ADB.TalDessiner()
+    end)
+    Bouton(C, "Supprimer", 168, -490, 80, ADB.TalSupprimer)
+
+    f:SetScript("OnShow", function() ADB.TalDessiner() end)
+end
+
+function ADB.BasculerTalents()
+    if not ADB.talFrame then ADB.TalCreer() end
+    local f = ADB.talFrame
+    if f:IsShown() then f:Hide() else f:Show() end
+end
+
+------------------------------------------------------------------------------
+-- 8. INITIALISATION / RAFRAICHISSEMENT GLOBAL
+------------------------------------------------------------------------------
+function ADB.TalRafraichir()
+    if not ADB.db or not ADB.playerName or not ADB.talAttente then return end
+    ADB.TalNettoyerPoints()
+    ADB.TalDemanderArbre()
+    ADB.TalRafraichirBarre()
+    if ADB.talFrame and ADB.talFrame:IsShown() then ADB.TalDessiner() end
+end
+
+function ADB.InitTalents()
+    ADB.talAttente, ADB.talDemande, ADB.talFile = {}, {}, {}
+    ADB.talPlan, ADB.talNoeudsPlan = {}, {}
+    ADB.TalCreerBarre()
+end

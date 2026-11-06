@@ -1,0 +1,21 @@
+# AddonDesBrumes.toc
+## Interface: 90207
+## Title: Addon des Brumes
+## Notes: Pacte des Brumes - portraits JDR, fiches, PV/PM fictifs, PNJ du MJ, talents.
+## Version: 1.6
+## SavedVariablesPerCharacter: AddonDesBrumesDB
+
+AddonDesBrumes.lua
+Cadres.lua
+Icones.lua
+Mesures.lua
+Talents.lua
+Attaque.lua
+Equip.lua
+Buffs.lua
+Effets.lua
+Pets.lua
+Liens.lua
+Transfert.lua
+Quetes.lua
+AddonDesBrumes.xml
