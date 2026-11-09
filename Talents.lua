@@ -21,7 +21,7 @@ local TAL = {
     COUT_MAX = 999,
     POR_MAX = 200,
     ZOE_MAX = 200,
-    TAGS_MAX = 6,
+    TAGS_MAX = 30,
     TYPES = { "Actif", "Passif" },
     STATS = { "Aucune", "Force", "Agilité", "Intelligence" },
     INTERS = { "Dégâts", "Soins", "Bouclier", "Autre" },
@@ -29,8 +29,11 @@ local TAL = {
     LIMITES = { { "1/repos", 1, "r" }, { "1/5 tours", 5, "t" }, { "1/10 tours", 10, "t" },
         { "1/3 repos", 3, "r" }, { "Illimité", 0, "i" } },
 }
+TAL.TAGREQ = {
+    dreadsteed = "Pierre d'âme de Destrier",
+}
 ADB.TAL = TAL
-ADB.CMD_TAL = { TN = true, TD = true, TF = true, TX = true, TS = true, TE = true, TQ = true, HQ = true, HR = true }
+ADB.CMD_TAL = { TN = true, TD = true, TF = true, TG = true, TX = true, TS = true, TE = true, TQ = true, HQ = true, HR = true }
 
 ------------------------------------------------------------------------------
 -- 1. DONNEES
@@ -48,7 +51,7 @@ local function NetTags(s)
     local t, vus = {}, {}
     local src = type(s) == "table" and table.concat(s, ",") or tostring(s or "")
     for w in src:lower():gmatch("[%w_]+") do
-        w = w:sub(1, 16)
+        w = w:sub(1, 32)
         if not vus[w] and #t < TAL.TAGS_MAX then
             vus[w] = true
             t[#t + 1] = w
@@ -56,6 +59,8 @@ local function NetTags(s)
     end
     return t
 end
+
+ADB.TalNetTags = NetTags
 
 local function Extras(n, t)
     n.coutPV = Borner(floor(tonumber(t.coutPV) or -1), -1, TAL.COUT_MAX)
@@ -192,7 +197,8 @@ function ADB.TalPointsUtilises()
     local a, n = ADB.TalArbre(cl), 0
     if a then
         for id in pairs(Appris(cl)) do
-            if a.noeuds[id] then n = n + 1 end
+            local nd = a.noeuds[id]
+            if nd and not ADB.TalATag(nd, "refund") then n = n + 1 end
         end
     end
     return n
@@ -209,7 +215,11 @@ function ADB.TalNettoyerPoints()
         if a.noeuds[id] then ids[#ids + 1] = id else ap[id] = nil end
     end
     table.sort(ids)
-    for i = #ids, ADB.TalPointsTotal() + 1, -1 do ap[ids[i]] = nil end
+    local payants = {}
+    for _, id in ipairs(ids) do
+        if not ADB.TalATag(a.noeuds[id], "refund") then payants[#payants + 1] = id end
+    end
+    for i = #payants, ADB.TalPointsTotal() + 1, -1 do ap[payants[i]] = nil end
     local vue
     for _, id in ipairs(ids) do
         if ap[id] and a.noeuds[id].spe then
@@ -245,18 +255,45 @@ function ADB.TalBonusSpe(n)
     return 0
 end
 
+function ADB.InvATag(tag)
+    local inv = ADB.db and ADB.db.inv
+    if not inv then return nil end
+    for i = 1, ADB.INV_SLOTS do
+        local it = inv[i]
+        if it and it.tags then
+            for _, t in ipairs(it.tags) do
+                if t == tag then return it end
+            end
+        end
+    end
+    return nil
+end
+
+-- Prérequis dus aux tags du talent : { { nom = "...", ok = bool }, ... }
+function ADB.TalTagsRequis(n)
+    local res = {}
+    for _, t in ipairs(n.tags or {}) do
+        local nom = TAL.TAGREQ[t]
+        if nom then res[#res + 1] = { nom = nom, ok = ADB.InvATag(t) ~= nil } end
+    end
+    return res
+end
+
 function ADB.TalPrerequisOK(n)
     local cl = ADB.db.classe
     local a, ap = ADB.TalArbre(cl), Appris(cl)
     for _, r in ipairs(n.req) do
         if a.noeuds[r] and not ap[r] then return false end
     end
+    for _, r in ipairs(ADB.TalTagsRequis(n)) do
+        if not r.ok then return false end
+    end
     return true
 end
 
 function ADB.TalPeutApprendre(n)
     if Appris(ADB.db.classe)[n.id] then return false end
-    if ADB.TalPointsRestants() <= 0 then return false end
+    if ADB.TalPointsRestants() <= 0 and not ADB.TalATag(n, "refund") then return false end
     if n.spe then
         local s = ADB.TalSpeActive()
         if s and s.id ~= n.id then return false end
@@ -411,7 +448,8 @@ function ADB.TalSurvol(b)
     local propre = ADB.talVue == ADB.db.classe
     local G = ADB.TalInfobulle(b, n, "arbre")
     local ap = Appris(ADB.db.classe)
-    if #n.req > 0 then
+    local tr = ADB.TalTagsRequis(n)
+    if #n.req > 0 or #tr > 0 then
         G:AddLine(" ")
         for _, r in ipairs(n.req) do
             local p = a.noeuds[r]
@@ -419,6 +457,10 @@ function ADB.TalSurvol(b)
                 local ok = propre and ap[r]
                 G:AddLine("Prérequis : " .. p.nom, ok and 0.3 or 1, ok and 1 or 0.3, 0.3)
             end
+        end
+        for _, r in ipairs(tr) do
+            local ok = propre and r.ok
+            G:AddLine("Prérequis : " .. r.nom, ok and 0.3 or 1, ok and 1 or 0.3, 0.3)
         end
     end
     G:AddLine(" ")
@@ -458,6 +500,8 @@ local function Decouper(s, taille)
     return t
 end
 
+ADB.Decouper = Decouper
+
 local function MessagesNoeud(ci, n)
     local msgs = { format("TN;%d;%d;%d;%d;%d;%d;%d;%d;%d;%d;%d;%d;%s;%s;%s",
         ci, n.id, n.x, n.y, n.typ, n.stat, n.inter, n.elem, n.mana, n.lim,
@@ -467,7 +511,9 @@ local function MessagesNoeud(ci, n)
         msgs[#msgs + 1] = format("TD;%d;%d;%d;%d;%s", ci, n.id, i, #ch, Encoder(s))
     end
     msgs[#msgs + 1] = format("TF;%d;%d;%d;%d;%d;%d;%d;%s;%s;%s;%d", ci, n.id, n.coutPV, n.portee,
-        n.precision, n.zoe, n.spe and 1 or 0, n.specX, n.specY, table.concat(n.tags, ","), n.buffId or 0)
+        n.precision, n.zoe, n.spe and 1 or 0, n.specX, n.specY, "", n.buffId or 0)
+    local tg = Decouper(table.concat(n.tags, ","), 120)
+    for i, s in ipairs(tg) do msgs[#msgs + 1] = format("TG;%d;%d;%d;%d;%s", ci, n.id, i, #tg, s) end
     return msgs
 end
 
@@ -579,7 +625,11 @@ function ADB.RecevoirTalent(cmd, nom, message)
             if att then
                 ADB.talAttente[jeton] = nil
                 if p[4] == "1" then
-                    local n = ADB.TalNoeudPropre(att.id)
+                    if att.potion then
+                        local s = ADB.db.inv[att.potion]
+                        if s and s.kind == att.kind then ADB.UtiliserPotion(att.potion) end
+                    end
+                    local n = att.id and ADB.TalNoeudPropre(att.id)
                     if n then
                         local enTour = att.force and ADB.phase == "PLAYER_TURN" and not ADB.tourPasse
                         if ADB.TalExecuter(n, att, not enTour) and enTour and not n.bonus then
@@ -665,6 +715,17 @@ function ADB.RecevoirTalent(cmd, nom, message)
                 buffId = p[12]
             })
         end
+    elseif cmd == "TG" then
+        local n = a.noeuds[floor(tonumber(p[3]) or 0)]
+        local i, tot = tonumber(p[4]), tonumber(p[5])
+        if n and i and tot and tot >= 1 and tot <= 20 and i >= 1 and i <= tot then
+            i, tot = floor(i), floor(tot)
+            if i == 1 or not n.tgp then n.tgp = {} end
+            n.tgp[i] = p[6] or ""
+            for k = 1, tot do if not n.tgp[k] then return end end
+            n.tags = NetTags(table.concat(n.tgp, "", 1, tot))
+            n.tgp = nil
+        end
     end
     ADB.TalRafraichir()
 end
@@ -731,13 +792,13 @@ function ADB.TalExecuter(n, data, horsTour)
     if n.coutPV > 0 then msg = msg .. format(" (coût : %d PV)", n.coutPV) end
 
     local _, val = ADB.TalTexte(n.desc, true, ADB.TalMult(n), ADB.TalBonusSpe(n))
-    local bp, bc, bd = ADB.BufBonus("P:" .. ADB.playerName)
+    local bp, bc, bd, adv = ADB.BufBonus("P:" .. ADB.playerName)
     if val and n.inter == 1 then val = floor(val * bd + 0.5) end
     local effet = val and n.inter <= 3
     local mult, echec, critEchec = 1, false, false
 
     if n.precision > 0 then
-        local r, lib, c, m, e, ce = ADB.Jet(n.precision, bp, bc)
+        local r, lib, c, m, e, ce = ADB.Jet(n.precision, bp, bc, adv)
         mult, echec, critEchec = m, e, ce
         msg = msg .. format(" Jet de précision : %d (%s).", r, lib)
         UIErrorsFrame:AddMessage(format("%d - %s", r, lib), c[1], c[2], c[3])
@@ -745,14 +806,6 @@ function ADB.TalExecuter(n, data, horsTour)
 
     if echec then
         msg = msg .. " La compétence échoue."
-        if critEchec then
-            if effet then
-                ADB.AppliquerValeur(ADB.playerName, "pv", db.pv - val, true)
-                msg = msg .. format(" Effet négatif : %s perd %d PV.", qui, val)
-            else
-                msg = msg .. " Effet négatif (à la discrétion du MJ)."
-            end
-        end
     else
         if effet then
             local v = val * mult
@@ -793,7 +846,7 @@ function ADB.MJDeclencher(n)
         end
     end
     local noms = NomsListe(cibles)
-    local _, val = ADB.TalTexte(n.desc, true, 1, 0)           -- [n] brut, sans mult. de stat du MJ
+    local _, val = ADB.TalTexte(n.desc, true, 1, 0) -- [n] brut, sans mult. de stat du MJ
     local msg = "[MJ] " .. ADB.LienTexte(n, ci) .. (noms ~= "" and (" sur " .. noms) or "") .. "."
     if val and n.inter <= 3 then
         msg = msg .. format(({ " Inflige %d dégâts.", " Rend %d PV.", " Procure %d de bouclier." })[n.inter], val)
@@ -832,6 +885,7 @@ function ADB.TalDemanderMJ(data, force)
 end
 
 function ADB.TalHorsTour(data)
+    if data and data.potion then return ADB.PotionDemanderMJ(data.potion) end
     local n = data and ADB.TalNoeudPropre(data.id)
     if not n then return end
     if n.reac then
@@ -973,7 +1027,7 @@ local function CreerBtnBarre(i)
 end
 
 function ADB.TalCreerBarre()
-    local b = CreateFrame("Frame", "ADBTalentBar", UIParent, "BackdropTemplate")
+    local b = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
     b:SetFrameStrata("MEDIUM")
     b:SetPoint("BOTTOM", UIParent, "BOTTOM", 0, 150)
     b:SetSize(60, 60)
@@ -1539,7 +1593,7 @@ function ADB.TalCreer()
 
     -- Tags (invisibles pour les joueurs en jeu)
     Etiq(C, "Tags", 0, -364)
-    C.Tags = Saisie(C, 40, -361, 205, 60)
+    C.Tags = Saisie(C, 40, -361, 205, 600)
     C.Tags:SetScript("OnTextChanged", function(self, user)
         if user then Modif("tags", NetTags(self:GetText())) end
     end)
@@ -1604,3 +1658,7 @@ function ADB.InitTalents()
     ADB.talPlan, ADB.talNoeudsPlan = {}, {}
     ADB.TalCreerBarre()
 end
+
+hooksecurefunc(ADB, "RafraichirInv", function()
+    if ADB.talFrame and ADB.talFrame:IsShown() then ADB.TalDessiner() end
+end)

@@ -65,6 +65,7 @@ ADB.CLASSES[#ADB.CLASSES + 1] = { ADB.MJ_CLASSE, 0, 0, 0 }
 ADB.EQUIP_CLASSE = "Équipements"
 ADB.CLASSES[#ADB.CLASSES + 1] = { ADB.EQUIP_CLASSE, 0, 0, 0 }
 function ADB.ClasseSpeciale(n) return n == ADB.MJ_CLASSE or n == ADB.EQUIP_CLASSE end
+
 ADB.RACE_MAP, ADB.CLASSE_MAP = {}, {}
 for _, r in ipairs(ADB.RACES) do ADB.RACE_MAP[r[1]] = { r[2], r[3], r[4] } end
 for _, c in ipairs(ADB.CLASSES) do ADB.CLASSE_MAP[c[1]] = { c[2], c[3], c[4] } end
@@ -178,6 +179,20 @@ local function ValiderItem(t)
     if def then
         return { kind = t.kind, count = Borner(floor(tonumber(t.count) or 1), 1, def.stack) }
     end
+    if t.kind == "story" then
+        local icon = tostring(t.icon or "")
+        if #icon == 0 or #icon > 40 or icon:find("[^%w_]") then icon = "INV_Misc_QuestionMark" end
+        local nom = NettoyerNom(t.nom)
+        if nom == "" then nom = "Objet" end
+        return {
+            kind = "story",
+            rar = Borner(floor(tonumber(t.rar) or 1), 1, 4),
+            icon = icon,
+            nom = nom,
+            desc = NettoyerNom(t.desc):sub(1, 400),
+            tags = ADB.TalNetTags(t.tags),
+        }
+    end
     if t.kind ~= "equip" or not ADB.SLOT_NOM[t.slot] then return nil end
     local rar = Borner(floor(tonumber(t.rar) or 1), 1, 4)
     local st, tot = {}, 0
@@ -199,8 +214,11 @@ local function ValiderItem(t)
         nom = nom,
         comp = NettoyerNom(t.comp),
         sk = NetSk(t.sk),
+        tags = ADB.TalNetTags(t.tags),
     }
 end
+
+ADB.ValiderItem = ValiderItem
 
 function ADB.Print(msg)
     DEFAULT_CHAT_FRAME:AddMessage("|cff9d6bff[Brumes]|r " .. msg)
@@ -332,6 +350,7 @@ local function InitialiserDB()
                     sh = Borner(floor(tonumber(p.sh) or 0), 0, ADB.SHIELD_MAX),
                     ally = p.ally == true,
                     owner = (type(p.owner) == "string" and p.owner ~= "") and NettoyerNom(p.owner) or nil,
+                    rp = (type(p.rp) == "string" and NettoyerNom(p.rp) ~= "") and NettoyerNom(p.rp):sub(1, 40) or nil,
                     petType = ADB.PET_TYPES[p.petType or ""] and p.petType or nil,
                 }
                 maxId = max(maxId, id)
@@ -471,17 +490,15 @@ function ADB.ListerUnites()
 end
 
 function ADB.NomMJ()
-    if not IsInGroup() then return nil end
-    local units, lead = { "player" }, nil
+    if not IsInGroup() then
+        return UnitName("player") == ADB.MJ_NOM and ADB.MJ_NOM or nil
+    end
+    local units = { "player" }
     for _, u in ipairs(ADB.ListerUnites()) do units[#units + 1] = u end
     for _, u in ipairs(units) do
-        if UnitExists(u) then
-            local n = UnitName(u)
-            if n == ADB.MJ_NOM then return n end
-            if UnitIsGroupLeader(u) then lead = n end
-        end
+        if UnitExists(u) and UnitName(u) == ADB.MJ_NOM then return ADB.MJ_NOM end
     end
-    return lead
+    return nil
 end
 
 function ADB.EstMJ()
@@ -653,6 +670,7 @@ function ADB.Evenements.CHAT_MSG_ADDON(prefixe, message, canal, expediteur)
                 nom = Decoder(h or ""),
                 comp = Decoder(k or ""),
                 sk = l,
+                tags = m,
             })
             if it then ADB.RecevoirObjet(it, 1) end
         end
@@ -676,7 +694,7 @@ function ADB.Evenements.CHAT_MSG_ADDON(prefixe, message, canal, expediteur)
     elseif ADB.CMD_EXT[cmd] then
         ADB.RecevoirExt(cmd, nom, message)
     elseif cmd == "N" or cmd == "ND" or cmd == "NC" or cmd == "NS" or cmd == "NE" then
-        ADB.RecevoirPNJ(cmd, nom, a, b, c, d, e, f, g, h, k, l)
+        ADB.RecevoirPNJ(cmd, nom, a, b, c, d, e, f, g, h, k, l, m)
     end
 end
 
@@ -796,6 +814,12 @@ function ADB.LancerRepos()
     if not ADB.EstMJ() then return end
     local pct = ADB.PourcentRepos()
     ADB.Envoyer(format("REST;%d", pct))
+    for _, p in ipairs(ADB.db.pnjs) do
+        if p.owner then
+            ADB.AppliquerValeurPNJ(p.id, "pv", min(p.pvMax, p.pv + floor(p.pvMax * pct / 100 + 0.5)))
+            ADB.AppliquerValeurPNJ(p.id, "pm", min(p.pmMax, p.pm + floor(p.pmMax * pct / 100 + 0.5)))
+        end
+    end
     ADB.Print(format("Repos lancé : %d%% des PV et PM restaurés (+%d%% avec Ration).",
         pct, ADB.BONUS_RATION))
     ADBRestFrame:Hide()
@@ -890,10 +914,7 @@ function ADB.OnBarClick(barre, bouton)
     end
     local nom = parent.charName
     if not nom then return end
-    if not ADB.PeutModifier(nom) then
-        UIErrorsFrame:AddMessage("Seul le MJ peut modifier les PV/PM.", 1, 0.3, 0.3)
-        return
-    end
+    if not ADB.PeutModifier(nom) then return end
     if barre.kind == "pv" and IsControlKeyDown() then
         ADB.ModifierValeur(nom, "sh", bouton == "RightButton" and -1 or 1)
     elseif IsShiftKeyDown() then
@@ -906,6 +927,7 @@ function ADB.OnBarClick(barre, bouton)
 end
 
 function ADB.BarreInfobulle(barre)
+    if not ADB.EstMJ() then return end
     local p, edit = barre:GetParent(), false
     if p.npcId then
         edit = ADB.EstMJ()
@@ -1037,6 +1059,8 @@ function ADB.RafraichirJoueur()
     ADB.MajBarre(f.HP, d.pv, d.pvMax, d.sh)
     ADB.MajBarre(f.MP, d.pm, d.pmMax)
 end
+
+function ADB.PNJNom(p) return (p.rp and p.rp ~= "") and p.rp or p.nom end
 
 function ADB.TrouverPNJNom(nom)
     for _, p in ipairs(ADB.ListerPNJ()) do
@@ -1247,8 +1271,9 @@ function ADB.ListerPNJ()
 end
 
 function ADB.EnvoyerPNJ(p)
-    ADB.Envoyer(format("N;%d;%d;%d;%d;%d;%s;%d;%d;%s;%s", p.id, p.pv, p.pvMax, p.pm, p.pmMax,
-        Encoder(p.nom), p.sh or 0, p.ally and 1 or 0, Encoder(p.owner or ""), p.petType or ""))
+    ADB.Envoyer(format("N;%d;%d;%d;%d;%d;%s;%d;%d;%s;%s;%s", p.id, p.pv, p.pvMax, p.pm, p.pmMax,
+        Encoder(p.nom), p.sh or 0, p.ally and 1 or 0, Encoder(p.owner or ""), p.petType or "",
+        Encoder(p.rp or "")))
 end
 
 function ADB.PlanifierPNJ(id)
@@ -1302,7 +1327,7 @@ function ADB.DiffuserPNJComplet()
     end)
 end
 
-function ADB.RecevoirPNJ(cmd, nom, a, b, c, d, e, f, g, h, k, l)
+function ADB.RecevoirPNJ(cmd, nom, a, b, c, d, e, f, g, h, k, l, m)
     if ADB.EstMJ() then return end
     if not ADB.EstNomMJ(nom) then return end
 
@@ -1346,6 +1371,8 @@ function ADB.RecevoirPNJ(cmd, nom, a, b, c, d, e, f, g, h, k, l)
         p.ally = (h == "1")
         p.owner = (k and k ~= "") and NettoyerNom(Decoder(k)) or nil
         p.petType = ADB.PET_TYPES[l or ""] and l or nil
+        local rp = (m and m ~= "" and #m <= 130) and NettoyerNom(Decoder(m)):sub(1, 40) or ""
+        p.rp = rp ~= "" and rp or nil
         p.pv = Borner(floor(pv), 0, pvMax)
         p.pm = Borner(floor(pm), 0, pmMax)
         p.perime = nil
@@ -1355,7 +1382,7 @@ function ADB.RecevoirPNJ(cmd, nom, a, b, c, d, e, f, g, h, k, l)
     ADB.RafraichirNPC()
 end
 
-function ADB.CreerPNJ(nom, pvMax, pmMax, ally)
+function ADB.CreerPNJ(nom, pvMax, pmMax, ally, rp)
     if not ADB.EstMJ() then
         ADB.Print("Seul le MJ (chef de groupe) peut créer des PNJ.")
         return false
@@ -1378,6 +1405,7 @@ function ADB.CreerPNJ(nom, pvMax, pmMax, ally)
         pm = pmMax,
         sh = 0,
         ally = ally and true or false,
+        rp = (rp and rp ~= "") and rp or nil,
     }
     ADB.PlanifierPNJ(id)
     ADB.MiseEnPageNPC()
@@ -1405,8 +1433,8 @@ function ADB.AppliquerValeurPNJ(id, kind, valeur, exact)
     valeur = Borner(floor(valeur + 0.5), 0, kind == "sh" and ADB.SHIELD_MAX or p[kind .. "Max"])
     if kind == "pv" and not exact then valeur = Absorber(p, valeur) end
     p[kind] = valeur
-    ADB.SuivrePV("N:" .. id, p.nom, p.pv - pv0)
-    ADB.SuivrePV("NB:" .. id, p.nom, p.sh - sh0, true)
+    ADB.SuivrePV("N:" .. id, ADB.PNJNom(p), p.pv - pv0)
+    ADB.SuivrePV("NB:" .. id, ADB.PNJNom(p), p.sh - sh0, true)
     ADB.PlanifierPNJ(id)
     ADB.RafraichirNPC()
 end
@@ -1502,7 +1530,7 @@ function ADB.RafraichirNPC()
         if f:IsShown() and f.npcId then
             local p = TrouverPNJ(liste, f.npcId)
             if p then
-                f.NameText:SetText("|cff" .. (p.ally and "40ff40" or "ffa040") .. p.nom .. "|r")
+                f.NameText:SetText("|cff" .. (p.ally and "40ff40" or "ffa040") .. ADB.PNJNom(p) .. "|r")
                 ADB.MajBarre(f.HP, p.pv, p.pvMax, p.sh)
                 ADB.MajBarre(f.MP, p.pm, p.pmMax)
                 f.Delete:SetShown(estMJ)
@@ -1545,7 +1573,8 @@ function ADB.ValiderCreationPNJ()
         ADB.Print("PV max invalide (1 à " .. ADB.PNJ_STAT_MAX .. ").")
         return
     end
-    if ADB.CreerPNJ(nom, pv, pm, f.AllyCheck:GetChecked()) then f:Hide() end
+    local rp = f.RPEdit and NettoyerNom(f.RPEdit:GetText()):sub(1, 40) or ""
+    if ADB.CreerPNJ(nom, pv, pm, f.AllyCheck:GetChecked(), rp) then f:Hide() end
 end
 
 ------------------------------------------------------------------------------
@@ -1666,6 +1695,8 @@ function ADB.RafraichirConfig()
     local mj = ADB.EstMJ()
     local gm = { f.ItemButton, f.MJButton, f.PNJButton, f.FicheCibleButton }
     local liste = { f.TalentButton, f.InvButton }
+    f.PetButton:SetShown(not mj)
+    if not mj then liste[#liste + 1] = f.PetButton end
     for _, b in ipairs(gm) do
         b:SetShown(mj)
         if mj then liste[#liste + 1] = b end
@@ -1929,7 +1960,7 @@ StaticPopupDialogs["ADB_POTION"] = {
     whileDead = 1,
     hideOnEscape = 1,
     preferredIndex = 3,
-    OnAccept = function(self, data) ADB.UtiliserPotion(data) end,
+    OnAccept = function(self, data) ADB.PotionDemander(data) end,
 }
 
 function ADB.UtiliserPotion(i)
@@ -1988,6 +2019,8 @@ function ADB.SlotInfobulle(b)
         GameTooltip:AddLine(def.desc, 1, 0.82, 0, true)
         if def.stack > 1 then GameTooltip:AddLine("Quantité : " .. it.count .. " / " .. def.stack, 1, 1, 1) end
         if it.kind ~= "ration" then GameTooltip:AddLine("Clic droit : utiliser", 0.6, 0.6, 0.6) end
+    elseif it.kind == "story" then
+        GameTooltip:AddLine(it.desc ~= "" and it.desc or "Objet narratif", 1, 0.82, 0, true)
     else
         GameTooltip:AddLine(ADB.SLOT_NOM[it.slot], 1, 1, 1)
         for i = 1, 3 do
@@ -2157,9 +2190,9 @@ function ADB.EnvoyerObjet(cible, it, qty)
         return
     end
     if it.kind == "equip" then
-        ADB.Envoyer(format("IE;%s;%s;%d;%s;%d;%d;%d;%s;%s;%s", cible, it.slot, it.rar, it.icon,
+        ADB.Envoyer(format("IE;%s;%s;%d;%s;%d;%d;%d;%s;%s;%s;%s", cible, it.slot, it.rar, it.icon,
             it.st[1], it.st[2], it.st[3], Encoder(it.nom), Encoder(it.comp),
-            table.concat(it.sk or {}, ",")))
+            table.concat(it.sk or {}, ","), table.concat(it.tags or {}, ",")))
     else
         ADB.Envoyer(format("IC;%s;%s;%d", cible, it.kind, qty))
     end
@@ -2210,6 +2243,7 @@ function ADB.ValiderCreationItem()
         nom = nom,
         comp = f.CompEdit:GetText(),
         sk = f.SkEdit:GetText(),
+        tags = f.TagsEdit and f.TagsEdit:GetText() or "",
     })
     if it then ADB.EnvoyerObjet(cible, it, 1) end
 end
@@ -2534,7 +2568,7 @@ function ADB.OuvrirSaisiePV(nom, npcId)
     if npcId then d = TrouverPNJ(ADB.db.pnjs, npcId) elseif nom then d = ADB.GetStatBlock(nom) end
     if not d then return end
     f.nom, f.npcId = nom, npcId
-    f.Titre:SetText(npcId and d.nom or ADB.NomAffiche(nom))
+    f.Titre:SetText(npcId and ADB.PNJNom(d) or ADB.NomAffiche(nom))
     f.PV:SetText(d.pv)
     f.SH:SetText(d.sh or 0)
     f:Show()

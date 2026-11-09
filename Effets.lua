@@ -43,8 +43,14 @@ end
 ------------------------------------------------------------------------------
 -- BIBLIOTHEQUE DE SCRIPTS
 ------------------------------------------------------------------------------
-ADB.FxDef("Tir du cobra", [[
-hit: cd "Ordre de tuer" 1
+ADB.FXTAG = {}
+local tcache = {}
+function ADB.FxTag(tag, txt) ADB.FXTAG[Norm(tag)] = txt tcache[Norm(tag)] = nil end
+ADB.FxTag("ReducCDKillOrder", [[
+hit: cd "#KillOrder" 1
+]])
+ADB.FxTag("ReducCDTraqueffroi", [[
+hit: cd "#Traqueffroi" 1
 ]])
 ADB.FxDef("Guérison du familier", [[
 hit [pet]: heal pet 7
@@ -68,9 +74,6 @@ passive: bonus "Rossée sauvage" 5
 ]])
 ADB.FxDef("Démoniste", [[
 passive: manatopv
-]])
-ADB.FxDef("Traqueurs carnivores", [[
-passive: dotheal 1 "Traqueffroi" "Ravageur Gangrené" "Traqueur Corrompu"
 ]])
 ADB.FxDef("Luna gardienne", [[
 passive: luna 50
@@ -129,7 +132,16 @@ end
 local function Script(n)
     local k = Norm(n.nom)
     if cache[k] == nil then cache[k] = ADB.FX[k] and Parse(ADB.FX[k]) or false end
-    return cache[k] or nil
+    local res = {}
+    for _, l in ipairs(cache[k] or {}) do res[#res + 1] = l end
+    for _, t in ipairs(n.tags or {}) do
+        local x = ADB.FXTAG[t]
+        if x then
+            tcache[t] = tcache[t] or Parse(x)
+            for _, l in ipairs(tcache[t]) do res[#res + 1] = l end
+        end
+    end
+    return #res > 0 and res or nil
 end
 
 ------------------------------------------------------------------------------
@@ -312,14 +324,18 @@ CMD.heal = function(ctx, a) Appliquer(ctx, a[2], 2, Val(ctx, a[3], "heal")) end
 CMD.shield = function(ctx, a) Appliquer(ctx, a[2], 3, Val(ctx, a[3], "shield")) end
 
 CMD.cd = function(ctx, a)
-    local n = a[2] and TalParNom(a[2])
-    if not n then return end
-    local cd, cle = ADB.db.talents.cd, ADB.db.classe .. ":" .. n.id
-    local v, red = cd[cle], tonumber(a[3]) or 1
-    if not v then return end
-    local r = v - red
-    cd[cle] = r > 0 and r or nil
-    ctx.msgs[#ctx.msgs + 1] = format("Le rechargement de %s est réduit de %d.", n.nom, red)
+    local arbre = ADB.db and ADB.TalArbre(ADB.db.classe)
+    if not (a[2] and arbre) then return end
+    local cd, red = ADB.db.talents.cd, tonumber(a[3]) or 1
+    for _, n in pairs(arbre.noeuds) do
+        local cle = ADB.db.classe .. ":" .. n.id
+        local v = cd[cle]
+        if v and Selecteur(a[2], n) then
+            local r = v - red
+            cd[cle] = r > 0 and r or nil
+            ctx.msgs[#ctx.msgs + 1] = format("Le rechargement de %s est réduit de %d.", n.nom, red)
+        end
+    end
 end
 
 CMD.recharge = function(ctx, a)
@@ -480,21 +496,42 @@ ADB.BufTraiter = function(id, bonus, mult100, key)
     return oBT(id, bonus, mult100, key)
 end
 
--- Traqueurs carnivores : soin quand un DOT listé touche (fin du tour ennemi) / quand le familier listé touche
+local function TagActif(tag)
+    for _, n in ipairs(Appris()) do
+        if n.typ == 2 and ADB.TalATag(n, tag) then return n end
+    end
+end
+
 local function Soigner(x)
     if ADB.EstMJ() or x <= 0 then return end
     local d = ADB.GetStatBlock(ADB.playerName)
     if d then ADB.AppliquerValeur(ADB.playerName, "pv", d.pv + x) end
 end
 
+local function GagnerMana(g, src)
+    local d = ADB.GetStatBlock(ADB.playerName)
+    local nv = min(d.pmMax, ADB.db.pm + g)
+    if nv > ADB.db.pm then
+        ADB.AnnoncerChat(format("%s regagne %d PM (%s).", ADB.NomAffiche(ADB.playerName), nv - ADB.db.pm, src))
+        ADB.db.pm = nv
+        ADB.ApresChangementLocal()
+    end
+end
+
+local function FamHit()
+    local n = TagActif("famhit")
+    if n then return n end
+    local s = ADB.TalSpeActive()
+    return (s and s.specY == "famhit") and s or nil
+end
+
 function ADB.FxFamilierTouche(p)
-    for _, c in ipairs(ADB.FxPassifs("dotheal")) do
-        for i = 3, #c do
-            if Norm(c[i]) == Norm(p.nom) then
-                Soigner(tonumber(c[2]) or 1)
-                break
-            end
-        end
+    if ADB.EstMJ() then return end
+    local fh = FamHit()
+    if fh then GagnerMana(max(1, floor(ADB.TalMult(fh) + 0.5)), "touche de familier") end
+    if p.petType == "Traqueur Corrompu" and TagActif("healonhounddamage") then
+        local d = ADB.GetStatBlock(ADB.playerName)
+        Soigner(max(1, floor(d.multInt + 0.5)))
     end
 end
 
@@ -514,19 +551,28 @@ hooksecurefunc(ADB, "PhaseCombat", function()
     local prev, ph = derniere, ADB.phase
     derniere = ph
     if prev ~= "ENEMY_TURN" or ph == prev or ph == "IDLE" or ADB.EstMJ() then return end
-    for _, c in ipairs(ADB.FxPassifs("dotheal")) do
-        local n = 0
-        for key, l in pairs(ADB.buffs) do
-            if not EstAllie(key) then
-                for _, b in ipairs(l) do
-                    if b.typ == 1 then
-                        for i = 3, #c do
-                            if Norm(c[i]) == Norm(b.nom) then n = n + 1 break end
-                        end
-                    end
-                end
+    local n = 0
+    for key, l in pairs(ADB.buffs) do
+        if not EstAllie(key) then
+            for _, b in ipairs(l) do
+                if b.typ == 1 and ADB.BufATag(b, "hound") then n = n + 1 end
             end
         end
-        Soigner((tonumber(c[2]) or 1) * n)
     end
+    if n == 0 then return end
+    local d = ADB.GetStatBlock(ADB.playerName)
+    local g = max(1, floor(d.multInt + 0.5))
+    if TagActif("healonhounddamage") then Soigner(g * n) end
+    if FamHit() then GagnerMana(g * n, "Hound") end
 end)
+
+local oActs = ADB.TalActifs
+ADB.TalActifs = function()
+    local r = oActs()
+    if ADB.phase == "IDLE" or not TagActif("demonicbolt") then return r end
+    local o = {}
+    for _, n in ipairs(r) do
+        if not ADB.TalATag(n, "shadowbolt") then o[#o + 1] = n end
+    end
+    return o
+end

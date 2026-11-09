@@ -18,4 +18,8 @@ Pets.lua
 Liens.lua
 Transfert.lua
 Quetes.lua
+Vue.lua
+Don.lua
+Alt.lua
+Ajouts.lua
 AddonDesBrumes.xml

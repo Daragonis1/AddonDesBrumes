@@ -5,20 +5,58 @@ local Borner, Encoder, Decoder, Net = ADB.Borner, ADB.Encoder, ADB.Decoder, ADB.
 local UI = ADB.UI
 local IconeTex = ADB.IconeTex
 
-local TYPES = { "Dégâts", "Soins", "Immobilisation", "Étourdissement", "Courroux Bestial" }
+local TYPES = { "Dégâts", "Soins", "Immobilisation", "Étourdissement", "Silence", "Avantage", "Désavantage",
+    "Courroux Bestial" }
 ADB.BUF_TYPES = TYPES
 local BUF_MAX, PAR_CIBLE = 12, 8
 ADB.buffs, ADB.bufTmp = {}, {}
+ADB.bufTags, ADB.bufTagBuf = {}, {}
+local tagSent = {}
+
+local function EnvoyerTags(id)
+    local d = ADB.BufDef(id)
+    if not d then return end
+    local s = table.concat(d.tags or {}, ",")
+    if tagSent[id] == s then return end
+    tagSent[id] = s
+    local ch = ADB.Decouper(s, 120)
+    if #ch == 0 then ch = { "" } end
+    for i, c in ipairs(ch) do ADB.TalEnfiler(format("BT;%d;%d;%d;%s", id, i, #ch, c)) end
+end
+
+function ADB.BufRenvoiTags(id)
+    tagSent[id] = nil
+    if ADB.EstMJ() and ADB.phase ~= "IDLE" then EnvoyerTags(id) end
+end
+
+function ADB.BufTags(b)
+    if ADB.EstMJ() then
+        local d = ADB.BufDef(b.id)
+        return d and d.tags or {}
+    end
+    return ADB.bufTags[b.id] or {}
+end
+
+function ADB.BufATag(b, tag)
+    for _, t in ipairs(ADB.BufTags(b)) do if t == tag then return true end end
+    return false
+end
 
 local function Esc(s) return (tostring(s):gsub("[%%;,]", function(c) return format("%%%02X", c:byte()) end)) end
 local function Entree(b) return format("%d,%d,%d,%d,%s,%s", b.id, b.left, b.typ, b.val, b.icon, Esc(b.nom)) end
 local function Lire(e)
     local id, left, typ, val, icon, nom = strsplit(",", e)
     id, left, typ, val = tonumber(id), tonumber(left), tonumber(typ), tonumber(val)
-    if not (id and left and typ and val and typ >= 1 and typ <= 5 and icon) then return nil end
+    if not (id and left and typ and val and typ >= 1 and typ <= #TYPES and icon) then return nil end
     if #icon == 0 or #icon > 40 or icon:find("[^%w_]") then icon = "INV_Misc_QuestionMark" end
-    return { id = floor(id), left = Borner(floor(left), 1, 99), typ = floor(typ),
-        val = Borner(floor(val), 0, 999), icon = icon, nom = Net(Decoder(nom or "")):sub(1, 40) }
+    return {
+        id = floor(id),
+        left = Borner(floor(left), 1, 99),
+        typ = floor(typ),
+        val = Borner(floor(val), 0, 999),
+        icon = icon,
+        nom = Net(Decoder(nom or "")):sub(1, 40)
+    }
 end
 
 local function PNJ(id)
@@ -36,10 +74,15 @@ function ADB.BufInitDB()
                 local icon = tostring(d.icon or "")
                 if #icon == 0 or #icon > 40 or icon:find("[^%w_]") then icon = "INV_Misc_QuestionMark" end
                 local id = floor(d.id)
-                defs[#defs + 1] = { id = id, nom = Net(d.nom):sub(1, 24), icon = icon,
+                defs[#defs + 1] = {
+                    id = id,
+                    nom = Net(d.nom):sub(1, 24),
+                    icon = icon,
                     duree = Borner(floor(tonumber(d.duree) or 1), 1, 20),
-                    typ = Borner(floor(tonumber(d.typ) or 1), 1, 5),
-                    val = Borner(floor(tonumber(d.val) or 0), 0, 999) }
+                    typ = Borner(floor(tonumber(d.typ) or 1), 1, #TYPES),
+                    val = Borner(floor(tonumber(d.val) or 0), 0, 999),
+                    tags = ADB.TalNetTags(d.tags)
+                }
                 maxId = max(maxId, id)
             end
         end
@@ -57,22 +100,38 @@ function ADB.BufDefNom(nom)
     for _, d in ipairs(ADB.db.buffDefs) do if d.nom:lower() == nom then return d end end
 end
 
-function ADB.BufCreerDef(nom, icon, duree, typ, val)
+function ADB.BufCreerDef(nom, icon, duree, typ, val, tags, editId)
     if not ADB.EstMJ() then return false end
-    if #ADB.db.buffDefs >= BUF_MAX then ADB.Print("Maximum " .. BUF_MAX .. " buffs/debuffs.") return false end
     nom = Net(nom):sub(1, 24)
-    if nom == "" then ADB.Print("Donnez un nom.") return false end
-    local id = ADB.db.buffProchainId
-    ADB.db.buffProchainId = id + 1
-    table.insert(ADB.db.buffDefs, { id = id, nom = nom, icon = icon, duree = Borner(duree, 1, 20),
-        typ = typ, val = Borner(val, 0, 999) })
+    if nom == "" then
+        ADB.Print("Donnez un nom.")
+        return false
+    end
+    local d = editId and ADB.BufDef(editId)
+    if not d then
+        if #ADB.db.buffDefs >= BUF_MAX then
+            ADB.Print("Maximum " .. BUF_MAX .. " buffs/debuffs.")
+            return false
+        end
+        local id = ADB.db.buffProchainId
+        ADB.db.buffProchainId = id + 1
+        d = { id = id }
+        table.insert(ADB.db.buffDefs, d)
+    end
+    d.nom, d.icon, d.duree, d.typ, d.val = nom, icon, Borner(duree, 1, 20), typ, Borner(val, 0, 999)
+    d.tags = ADB.TalNetTags(tags)
+    ADB.BufRenvoiTags(d.id)
     return true
 end
 
 function ADB.BufSupprDef(id)
     for i, d in ipairs(ADB.db.buffDefs) do
-        if d.id == id then table.remove(ADB.db.buffDefs, i) break end
+        if d.id == id then
+            table.remove(ADB.db.buffDefs, i)
+            break
+        end
     end
+    if ADB.bufFrame and ADB.bufFrame.editId == id then ADB.bufFrame.editId = nil end
     ADB.BufMajFenetre()
 end
 
@@ -104,7 +163,7 @@ function ADB.NomCle(key)
     if k == "P" then return ADB.NomAffiche(id) end
     if k == "N" and ADB.db then
         local p = PNJ(tonumber(id))
-        if p then return p.nom end
+        if p then return ADB.PNJNom(p) end
     end
     return "La cible"
 end
@@ -122,7 +181,6 @@ function ADB.BufA(key, typ)
     return false
 end
 
--- bonus precision, bonus critique, multiplicateur degats (Courroux Bestial : joueur + familier)
 function ADB.BufBonus(key)
     local bp, bc, bd = 0, 0, 1
     local function scan(k)
@@ -133,32 +191,51 @@ function ADB.BufBonus(key)
     scan(key)
     local l = ADB.CleLiee(key)
     if l then scan(l) end
-    return bp, bc, bd
+    local av, des
+    for _, b in ipairs(ADB.buffs[key] or {}) do
+        if b.typ == 7 then av = true elseif b.typ == 8 then des = true end
+    end
+    return bp, bc, bd, (av and not des) and 1 or ((des and not av) and -1 or 0)
 end
 
 ------------------------------------------------------------------------------
--- Pose / diffusion (MJ autoritaire)
+-- Pose / diffusion
 ------------------------------------------------------------------------------
 function ADB.BufDiffuser(key)
     if not ADB.EstMJ() then return end
     local l, k = ADB.buffs[key], Encoder(key)
-    if not l or #l == 0 then ADB.TalEnfiler(format("BF;%s;0;0;", k)) return end
+    for _, b in ipairs(l or {}) do EnvoyerTags(b.id) end
+    if not l or #l == 0 then
+        ADB.TalEnfiler(format("BF;%s;0;0;", k))
+        return
+    end
     for i, b in ipairs(l) do ADB.TalEnfiler(format("BF;%s;%d;%d;%s", k, i, #l, Entree(b))) end
 end
 
 function ADB.BufDiffuserTout()
     if not ADB.EstMJ() then return end
+    wipe(tagSent)
     for key in pairs(ADB.buffs) do ADB.BufDiffuser(key) end
 end
 
 function ADB.BufPoser(key, inst)
     if not ADB.EstMJ() then return false end
-    if ADB.phase == "IDLE" then ADB.Print("Les buffs/debuffs ne s'appliquent qu'en combat.") return false end
+    if ADB.phase == "IDLE" then
+        ADB.Print("Les buffs/debuffs ne s'appliquent qu'en combat.")
+        return false
+    end
     local l = ADB.buffs[key]
-    if not l then l = {} ADB.buffs[key] = l end
+    if not l then
+        l = {}
+        ADB.buffs[key] = l
+    end
     local place
     for i, b in ipairs(l) do
-        if b.id == inst.id then l[i] = inst place = true break end
+        if b.id == inst.id then
+            l[i] = inst
+            place = true
+            break
+        end
     end
     if not place then
         if #l >= PAR_CIBLE then return false end
@@ -174,8 +251,14 @@ end
 function ADB.BufPoserDef(def, key, bonus, mult)
     local val = def.val
     if def.typ <= 2 then val = Borner(floor((def.val + (bonus or 0)) * (mult or 1) + 0.5), 0, 999) end
-    return ADB.BufPoser(key, { id = def.id, left = def.duree, typ = def.typ, val = val,
-        icon = def.icon, nom = def.nom })
+    return ADB.BufPoser(key, {
+        id = def.id,
+        left = def.duree,
+        typ = def.typ,
+        val = val,
+        icon = def.icon,
+        nom = def.nom
+    })
 end
 
 -- Demande de pose (id < 0 : etourdissement integre, bonus = nb de tours)
@@ -190,8 +273,14 @@ end
 
 function ADB.BufTraiter(id, bonus, mult100, key)
     if id == -1 then
-        return ADB.BufPoser(key, { id = -1, left = Borner(bonus, 1, 3), typ = 4, val = 0,
-            icon = "Spell_Frost_Stun", nom = "Étourdissement" })
+        return ADB.BufPoser(key, {
+            id = -1,
+            left = Borner(bonus, 1, 3),
+            typ = 4,
+            val = 0,
+            icon = "Spell_Frost_Stun",
+            nom = "Étourdissement"
+        })
     end
     local def = ADB.BufDef(id)
     if def then ADB.BufPoserDef(def, key, Borner(bonus, 0, 5), Borner(mult100, 0, 3000) / 100) end
@@ -201,7 +290,10 @@ function ADB.BufAppliquerForce(id)
     local def = ADB.BufDef(id)
     local key = ADB.CleUnite("target")
     if not ADB.EstMJ() or not def then return end
-    if not key then ADB.Print("Ciblez un personnage valide.") return end
+    if not key then
+        ADB.Print("Ciblez un personnage valide.")
+        return
+    end
     ADB.BufPoserDef(def, key, 0, 1)
 end
 
@@ -228,15 +320,32 @@ function ADB.BufRecevoir(cmd, nom, p)
             ADB.buffs[key] = nil
         elseif i >= 1 and i <= n and n <= PAR_CIBLE then
             local t = ADB.bufTmp[key]
-            if i == 1 or not t or t.n ~= n then t = { n = n, l = {} } ADB.bufTmp[key] = t end
+            if i == 1 or not t or t.n ~= n then
+                t = { n = n, l = {} }
+                ADB.bufTmp[key] = t
+            end
             t.l[i] = Lire(p[5] or "")
             for j = 1, n do if not t.l[j] then return end end
             ADB.buffs[key], ADB.bufTmp[key] = t.l, nil
         else
             return
         end
-        ADB.BufRafraichir()
+    elseif cmd == "BT" then
+        if ADB.EstMJ() or not ADB.EstNomMJ(nom) then return end
+        local id, i, n = tonumber(p[2]), tonumber(p[3]), tonumber(p[4])
+        if not (id and i and n and n >= 1 and n <= 20 and i >= 1 and i <= n) then return end
+        id, i, n = floor(id), floor(i), floor(n)
+        local t = ADB.bufTagBuf[id]
+        if i == 1 or not t or t.n ~= n then
+            t = { n = n, l = {} }
+            ADB.bufTagBuf[id] = t
+        end
+        t.l[i] = p[5] or ""
+        for j = 1, n do if not t.l[j] then return end end
+        ADB.bufTags[id] = ADB.TalNetTags(table.concat(t.l, "", 1, n))
+        ADB.bufTagBuf[id] = nil
     end
+    ADB.BufRafraichir()
 end
 
 ------------------------------------------------------------------------------
@@ -260,7 +369,8 @@ local function Resoudre(allies)
     local modif = {}
     for key, l in pairs(ADB.buffs) do
         local k, est = key:sub(1, 1), false
-        if k == "P" then est = true
+        if k == "P" then
+            est = true
         elseif k == "N" then
             local p = PNJ(tonumber(key:sub(3)))
             est = p and p.ally or false
@@ -288,17 +398,24 @@ hooksecurefunc(ADB, "PhaseCombat", function()
     if ph == "IDLE" then
         wipe(ADB.buffs)
         wipe(ADB.bufTmp)
+        wipe(tagSent)
         ADB.BufRafraichir()
     elseif ADB.EstMJ() then
-        if prev == "PLAYER_TURN" then Resoudre(true)
-        elseif prev == "ENEMY_TURN" then Resoudre(false) end
+        if prev == "PLAYER_TURN" then
+            Resoudre(true)
+        elseif prev == "ENEMY_TURN" then
+            Resoudre(false)
+        end
     end
 end)
 
 hooksecurefunc(ADB, "PlanifierPNJComplet", function()
     if ADB.EstMJ() and ADB.phase ~= "IDLE" and not ADB.bufPlan then
         ADB.bufPlan = true
-        C_Timer.After(2, function() ADB.bufPlan = false ADB.BufDiffuserTout() end)
+        C_Timer.After(2, function()
+            ADB.bufPlan = false
+            ADB.BufDiffuserTout()
+        end)
     end
 end)
 
@@ -306,17 +423,28 @@ end)
 -- Affichage
 ------------------------------------------------------------------------------
 function ADB.BufDesc(b)
-    if b.typ == 1 then return format("Inflige %d dégâts par tour.", b.val)
-    elseif b.typ == 2 then return format("Rend %d PV par tour.", b.val)
-    elseif b.typ == 3 then return "Immobilisation : bloque tout déplacement."
-    elseif b.typ == 4 then return "Étourdissement : empêche toute action." end
+    if b.typ == 1 then
+        return format("Inflige %d dégâts par tour.", b.val)
+    elseif b.typ == 2 then
+        return format("Rend %d PV par tour.", b.val)
+    elseif b.typ == 3 then
+        return "Immobilisation : bloque tout déplacement."
+    elseif b.typ == 4 then
+        return "Étourdissement : empêche toute action."
+    elseif b.typ == 6 then
+        return "Silence."
+    elseif b.typ == 7 then
+        return "Avantage : jets de précision lancés 2 fois, le meilleur est gardé."
+    elseif b.typ == 8 then
+        return "Désavantage : jets de précision lancés 2 fois, le pire est gardé."
+    end
     return "+50% de dégâts, +5 de précision et +5% de coup critique (joueur et familier)."
 end
 
 function ADB.BufInfobulle(ic)
     local b = ic.b
     if not b then return end
-    local bien = (b.typ == 2 or b.typ == 5)
+    local bien = (b.typ == 2 or b.typ == 5 or b.typ == 7)
     GameTooltip:SetOwner(ic, "ANCHOR_BOTTOMLEFT")
     GameTooltip:AddLine(b.nom, bien and 0.3 or 1, bien and 1 or 0.3, 0.3)
     GameTooltip:AddLine(ADB.BufDesc(b), 1, 1, 1, true)
@@ -345,7 +473,10 @@ local function Maj(c, liste, t, parLigne, dir)
     liste = liste or {}
     for i, b in ipairs(liste) do
         local ic = c.btns[i]
-        if not ic then ic = CreerIcone(c, t) c.btns[i] = ic end
+        if not ic then
+            ic = CreerIcone(c, t)
+            c.btns[i] = ic
+        end
         local col, lig = (i - 1) % parLigne, floor((i - 1) / parLigne)
         local pt = dir > 0 and "TOPLEFT" or "TOPRIGHT"
         ic:ClearAllPoints()
@@ -353,11 +484,17 @@ local function Maj(c, liste, t, parLigne, dir)
         ic.b = b
         ic.tex:SetTexture(IconeTex(b.icon))
         ic.nb:SetText(b.left)
-        if b.typ == 2 or b.typ == 5 then ic.bord:SetColorTexture(0.1, 0.7, 0.1, 1)
-        else ic.bord:SetColorTexture(0.8, 0.1, 0.1, 1) end
+        if b.typ == 2 or b.typ == 5 or b.typ == 7 then
+            ic.bord:SetColorTexture(0.1, 0.7, 0.1, 1)
+        else
+            ic.bord:SetColorTexture(0.8, 0.1, 0.1, 1)
+        end
         ic:Show()
     end
-    for i = #liste + 1, #c.btns do c.btns[i]:Hide() c.btns[i].b = nil end
+    for i = #liste + 1, #c.btns do
+        c.btns[i]:Hide()
+        c.btns[i].b = nil
+    end
 end
 
 function ADB.BufRafraichir()
@@ -368,6 +505,7 @@ function ADB.BufRafraichir()
         Maj(ADB.buffTarget, k and ADB.buffs[k], 22, 8, 1)
     end
 end
+
 hooksecurefunc(ADB, "RafraichirCible", function() ADB.BufRafraichir() end)
 
 ------------------------------------------------------------------------------
@@ -378,11 +516,12 @@ function ADB.BufMajFenetre()
     if not f or not f:IsShown() then return end
     f.IconeTex:SetTexture(IconeTex(f.icon))
     UIDropDownMenu_SetText(f.TypeDrop, TYPES[f.typ])
+    f.Btn:SetText(f.editId and "Enregistrer" or "Créer")
     local defs = ADB.db.buffDefs
     for i, r in ipairs(f.rows) do
         local d = defs[i]
         r.id = d and d.id
-        for _, w in ipairs({ r.ic, r.txt, r.app, r.del }) do w:SetShown(d ~= nil) end
+        for _, w in ipairs({ r.ic, r.txt, r.edit, r.app, r.del }) do w:SetShown(d ~= nil) end
         if d then
             r.ic:SetTexture(IconeTex(d.icon))
             r.txt:SetText(format("#%d %s |cffaaaaaa(%s, %dt%s)|r", d.id, d.nom, TYPES[d.typ], d.duree,
@@ -392,7 +531,7 @@ function ADB.BufMajFenetre()
 end
 
 function ADB.BufCreerFenetre()
-    local f = UI.FenetreBase("ADBBuffMJFrame", 380, 470, "Buffs / Debuffs (MJ)")
+    local f = UI.FenetreBase("ADBBuffMJFrame", 380, 500, "Buffs / Debuffs (MJ)")
     ADB.bufFrame = f
     f:SetPoint("CENTER", -300, 0)
     tinsert(UISpecialFrames, "ADBBuffMJFrame")
@@ -441,34 +580,56 @@ function ADB.BufCreerFenetre()
     UI.Etiq(f, "Valeur", 16, -150)
     f.Val = UI.Saisie(f, 70, -147, 50, 3, true)
     f.Val:SetText("3")
-    UI.Bouton(f, "Créer", 150, -147, 100, function()
+    UI.Etiq(f, "Tags", 16, -176)
+    f.Tags = UI.Saisie(f, 70, -173, 280, 600)
+
+    local function Reset()
+        f.editId = nil
+        f.Nom:SetText("")
+        f.Tags:SetText("")
+        ADB.BufMajFenetre()
+    end
+    f.Btn = UI.Bouton(f, "Créer", 150, -147, 100, function()
         if ADB.BufCreerDef(f.Nom:GetText(), f.icon, tonumber(f.Duree:GetText()) or 1, f.typ,
-            tonumber(f.Val:GetText()) or 0) then
-            f.Nom:SetText("")
-            ADB.BufMajFenetre()
+            tonumber(f.Val:GetText()) or 0, f.Tags:GetText(), f.editId) then
+            Reset()
         end
     end)
-    UI.Etiq(f, "ID à saisir dans l'éditeur de talents pour lier un debuff.", 16, -176, "GameFontDisableSmall")
+    UI.Bouton(f, "Nouveau", 256, -147, 90, Reset)
+    UI.Etiq(f, "ID à saisir dans l'éditeur de talents pour lier un debuff.", 16, -200, "GameFontDisableSmall")
 
     f.rows = {}
     for i = 1, BUF_MAX do
-        local y, r = -196 - (i - 1) * 22, {}
+        local y, r = -218 - (i - 1) * 22, {}
         r.ic = f:CreateTexture(nil, "ARTWORK")
         r.ic:SetSize(18, 18)
         r.ic:SetPoint("TOPLEFT", 16, y - 2)
         r.ic:SetTexCoord(0.07, 0.93, 0.07, 0.93)
         r.txt = UI.Etiq(f, "", 40, y - 5, "GameFontHighlightSmall")
-        r.txt:SetWidth(190)
+        r.txt:SetWidth(150)
         r.txt:SetWordWrap(false)
-        r.app = UI.Bouton(f, "Appliquer", 236, y, 70, function() ADB.BufAppliquerForce(r.id) end)
-        r.del = UI.Bouton(f, "X", 310, y, 28, function() ADB.BufSupprDef(r.id) end)
+        r.edit = UI.Bouton(f, "Éditer", 194, y, 52, function()
+            local d = r.id and ADB.BufDef(r.id)
+            if not d then return end
+            f.editId, f.icon, f.typ = d.id, d.icon, d.typ
+            f.Nom:SetText(d.nom)
+            f.Duree:SetText(d.duree)
+            f.Val:SetText(d.val)
+            f.Tags:SetText(table.concat(d.tags or {}, ","))
+            ADB.BufMajFenetre()
+        end)
+        r.app = UI.Bouton(f, "Appliquer", 248, y, 70, function() ADB.BufAppliquerForce(r.id) end)
+        r.del = UI.Bouton(f, "X", 322, y, 28, function() ADB.BufSupprDef(r.id) end)
         f.rows[i] = r
     end
     f:SetScript("OnShow", ADB.BufMajFenetre)
 end
 
 function ADB.BufCommande(reste)
-    if not ADB.EstMJ() then ADB.Print("Réservé au MJ.") return end
+    if not ADB.EstMJ() then
+        ADB.Print("Réservé au MJ.")
+        return
+    end
     reste = strtrim(reste or "")
     if reste == "" then
         local f = ADB.bufFrame
@@ -476,7 +637,10 @@ function ADB.BufCommande(reste)
         return
     end
     local def = ADB.BufDefNom(reste)
-    if not def then ADB.Print("Buff/debuff inconnu : " .. reste) return end
+    if not def then
+        ADB.Print("Buff/debuff inconnu : " .. reste)
+        return
+    end
     ADB.BufAppliquerForce(def.id)
 end
 
@@ -520,7 +684,8 @@ tk:SetScript("OnUpdate", function(_, el)
         and ADB.BufA("P:" .. ADB.playerName, 3) then
         local y, x = UnitPosition("player")
         if x then
-            if not ix then ix, iy = x, y
+            if not ix then
+                ix, iy = x, y
             elseif not warn and sqrt((x - ix) ^ 2 + (y - iy) ^ 2) > 1.5 then
                 warn = true
                 UIErrorsFrame:AddMessage("Vous êtes immobilisé : déplacement interdit !", 1, 0.3, 0.3)
@@ -545,4 +710,5 @@ function ADB.BufInit()
     t:SetPoint("TOPLEFT", ADBTargetFrame, "BOTTOMLEFT", 4, -18)
     ADB.buffTarget = t
     ADB.BufCreerFenetre()
+    UI.Bouton(ADBMJFrame, "Buffs / Debuffs", 155, -220, 125, function() ADB.BufCommande("") end)
 end

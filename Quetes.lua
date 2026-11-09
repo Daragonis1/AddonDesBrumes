@@ -298,7 +298,23 @@ local function CreerTracker()
     local f = CreateFrame("Frame", "ADBQuestTracker", UIParent)
     f:SetSize(240, 30)
     f:SetFrameStrata("LOW")
-    f:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", -30, -240)   -- ajuster la position ici
+    f:SetMovable(true)
+    f:SetClampedToScreen(true)
+    f:EnableMouse(true)
+    f:RegisterForDrag("LeftButton")
+    f:SetScript("OnDragStart", f.StartMoving)
+    f:SetScript("OnDragStop", function(s)
+        s:StopMovingOrSizing()
+        local p, _, rp, x, y = s:GetPoint(1)
+        ADB.db.qPos = { p, rp, floor(x + 0.5), floor(y + 0.5) }
+    end)
+    local pos = ADB.db.qPos
+    if type(pos) == "table" and type(pos[1]) == "string" and type(pos[2]) == "string"
+        and tonumber(pos[3]) and tonumber(pos[4]) then
+        f:SetPoint(pos[1], UIParent, pos[2], pos[3], pos[4])
+    else
+        f:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", -30, -240)
+    end
     f.blocs = {}
     ADB.qTracker = f
     f.Fond = f:CreateTexture(nil, "BACKGROUND")
@@ -678,3 +694,14 @@ SlashCmdList["ADDONDESBRUMES"] = function(msg)
         oSlash(msg)
     end
 end
+
+hooksecurefunc(ADB, "InitCreationPNJ", function()
+    local f = ADBNpcCreateFrame
+    if not f.RPEdit then
+        f:SetHeight(240)
+        UI.Etiq(f, "Nom RP", 20, -172)
+        f.RPEdit = UI.Saisie(f, 100, -169, 170, 40)
+        UI.Etiq(f, "Nom = nom réel en jeu (ciblage)", 20, -196, "GameFontDisableSmall")
+    end
+    f.RPEdit:SetText("")
+end)

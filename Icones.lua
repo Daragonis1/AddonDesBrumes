@@ -69,11 +69,25 @@ local function NomPropre(s)
     return s
 end
 
+local tmpTex
+local function NomDepuisID(v)
+    local lire = C_Texture and C_Texture.GetFilenameFromFileDataID
+    if lire then
+        local ok, r = pcall(lire, v)
+        if ok and r and r ~= "" then return NomPropre(r) end
+    end
+    if not tmpTex then tmpTex = UIParent:CreateTexture(nil, "BACKGROUND") end
+    tmpTex:SetTexture(v)
+    local t = tmpTex:GetTexture()
+    if type(t) == "string" then return NomPropre(t) end
+    return ""
+end
+
+
 local function Charger()
     if liste then return end
     liste, noms = {}, {}
     local vus, brut = {}, {}
-    local lire = C_Texture and C_Texture.GetFilenameFromFileDataID
     for _, nomFn in ipairs({ "GetLooseMacroIcons", "GetLooseMacroItemIcons",
                              "GetMacroIcons", "GetMacroItemIcons" }) do
         local fn = _G[nomFn]
@@ -84,9 +98,8 @@ local function Charger()
                 local nom = ""
                 if type(v) == "string" then
                     nom = NomPropre(v)
-                elseif lire then
-                    local ok, r = pcall(lire, v)
-                    if ok and r then nom = NomPropre(r) end
+                else
+                    nom = NomDepuisID(v)
                 end
                 local cle = (nom ~= "") and nom:lower() or tostring(v)
                 if not vus[cle] then

@@ -44,7 +44,7 @@ local function Portrait(f, u)
 end
 
 local function Art(f)
-    f.Model:Hide()
+    if f.Model then f.Model:Hide() end
     if f.SetBackdrop then f:SetBackdrop(nil) end
     local a = CreateFrame("Frame", nil, f)
     a:SetAllPoints(f)
@@ -117,6 +117,32 @@ function ADB.Member_OnLoad(self)
     Barre(self.MP, self, 47, -20, 70, 7, true)
 end
 
+local oNpcLoad = ADB.Npc_OnLoad
+function ADB.Npc_OnLoad(self)
+    if not (ADB.db and ADB.db.uiRemplacee) then return oNpcLoad(self) end
+    self.HP.kind = "pv"
+    self.MP.kind = "pm"
+    self:SetSize(120, 53)
+    if self.SetBackdrop then self:SetBackdrop(nil) end
+    local a = Art(self)
+    self.Fond = Fond(self, 46, -11, 71, 18)
+    self.Icon:ClearAllPoints()
+    self.Icon:SetSize(37, 37)
+    self.Icon:SetPoint("TOPLEFT", self, "TOPLEFT", 7, -6)
+    self.Icon:SetDrawLayer("BACKGROUND", 1)
+    a.Tex = a:CreateTexture(nil, "ARTWORK")
+    a.Tex:SetSize(128, 64)
+    a.Tex:SetPoint("TOPLEFT", a, "TOPLEFT", 0, 0)
+    a.Tex:SetTexture(TEX .. "UI-PartyFrame")
+    self.NameText:SetSize(70, 12)
+    self.NameText:SetJustifyH("LEFT")
+    self.NameText:ClearAllPoints()
+    self.NameText:SetPoint("TOPLEFT", self, "TOPLEFT", 46, -1)
+    Barre(self.HP, self, 47, -12, 70, 7, true)
+    Barre(self.MP, self, 47, -20, 70, 7, true)
+    self.Delete:SetFrameLevel(self:GetFrameLevel() + 10)
+end
+
 local oBarre = ADB.MajBarre
 function ADB.MajBarre(b, c, m, sh)
     oBarre(b, c, m, sh)
@@ -157,7 +183,7 @@ function ADB.RafraichirCible(rafraichirModele)
     end
     f.Art.Tex:SetTexture(ART_CIBLE[cl] or (TEX .. "UI-TargetingFrame"))
     f.NomFond:SetVertexColor(UnitSelectionColor("target"))
-    f.NameText:SetText(d and ADB.NomAffiche(f.charName) or nom or "")
+    f.NameText:SetText(d and ADB.NomAffiche(f.charName) or (p and ADB.PNJNom(p)) or nom or "")
     f.Level:SetText(niv)
     if c then f.Level:SetTextColor(c.r, c.g, c.b) else f.Level:SetTextColor(1, 0.82, 0) end
     Portrait(f, "target")
@@ -181,6 +207,12 @@ local function PlacerNPC()
     if ADB.db and ADB.db.uiRemplacee and ADBNpcFrame then
         ADBNpcFrame:ClearAllPoints()
         ADBNpcFrame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 5, -(130 + ADB.nbLignes * PITCH + 8))
+        for i, f in ipairs(ADB.pnjFrames) do
+            if f:IsShown() then
+                f:ClearAllPoints()
+                f:SetPoint("TOPLEFT", ADBNpcFrame, "TOPLEFT",floor((i - 1) / ADB.MEMBRES_PAR_COLONNE) * 123, -24 - ((i - 1) % ADB.MEMBRES_PAR_COLONNE) * PITCH)
+            end
+        end
     end
 end
 hooksecurefunc(ADB, "MiseEnPageNPC", PlacerNPC)
@@ -203,3 +235,98 @@ for _, e in ipairs({ "UNIT_PORTRAIT_UPDATE", "UNIT_MODEL_CHANGED", "PLAYER_TARGE
 ev:SetScript("OnEvent", function()
     if ADB.db and ADB.db.uiRemplacee then PortraitsTous() end
 end)
+
+-- Clic sur le portrait d'un PNJ : /target [Nom Réel] (bouton sécurisé, utilisable en combat)
+local ciblesEnAttente
+
+local function MajCiblage()
+    if InCombatLockdown() then
+        ciblesEnAttente = true
+        return
+    end
+    ciblesEnAttente = false
+    local liste = ADB.ListerPNJ()
+    for _, f in ipairs(ADB.pnjFrames) do
+        local b = f.cibleBtn
+        if f:IsShown() and f.npcId then
+            local p
+            for _, x in ipairs(liste) do
+                if x.id == f.npcId then p = x break end
+            end
+            if p then
+                if not b then
+                    b = CreateFrame("Button", nil, f, "SecureActionButtonTemplate")
+                    b:SetPoint("TOPLEFT", f, "TOPLEFT", 0, 0)
+                    b:SetSize(44, 44)
+                    b:RegisterForClicks("LeftButtonUp")
+                    b:SetAttribute("type1", "macro")
+                    b:SetFrameLevel(f:GetFrameLevel() + 6)
+                    f.cibleBtn = b
+                end
+                b:SetAttribute("macrotext1", "/target " .. ADB.PNJNom(p))
+                b:Show()
+            elseif b then
+                b:Hide()
+            end
+        elseif b then
+            b:Hide()
+        end
+    end
+end
+
+hooksecurefunc(ADB, "MiseEnPageNPC", MajCiblage)
+hooksecurefunc(ADB, "RafraichirNPC", MajCiblage)
+
+local evc = CreateFrame("Frame")
+evc:RegisterEvent("PLAYER_REGEN_ENABLED")
+evc:SetScript("OnEvent", function() if ciblesEnAttente then MajCiblage() end end)
+
+-- Portrait dynamique des PNJ : copie le portrait de l'unité visible, sinon garde le dernier connu (ou "?")
+local PNJ_QM = "Interface\\Icons\\INV_Misc_QuestionMark"
+
+local function UnitePNJ(nom)
+    local function ok(u) return UnitExists(u) and not UnitIsPlayer(u) and UnitName(u) == nom and UnitIsVisible(u) end
+    for _, u in ipairs({ "target", "focus", "mouseover" }) do
+        if ok(u) then return u end
+    end
+    for i = 1, 40 do
+        if ok("nameplate" .. i) then return "nameplate" .. i end
+    end
+    for _, u in ipairs(ADB.ListerUnites()) do
+        if ok(u .. "target") then return u .. "target" end
+    end
+end
+
+ADB.UnitePNJ = UnitePNJ
+
+local function MajPortraitsPNJ()
+    if not ADB.db or not ADB.pnjFrames then return end
+    local liste = ADB.ListerPNJ()
+    for _, f in ipairs(ADB.pnjFrames) do
+        if f:IsShown() and f.npcId and f.Icon then
+            if f.portId ~= f.npcId then          -- cadre réattribué à un autre PNJ : retour au "?"
+                f.portId = f.npcId
+                f.Icon:SetTexture(PNJ_QM)
+                f.Icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+            end
+            local p
+            for _, x in ipairs(liste) do
+                if x.id == f.npcId then p = x break end
+            end
+            local u = p and UnitePNJ(p.nom)
+            if u then
+                SetPortraitTexture(f.Icon, u)
+                f.Icon:SetTexCoord(0, 1, 0, 1)
+            end
+        end
+    end
+end
+
+hooksecurefunc(ADB, "MiseEnPageNPC", MajPortraitsPNJ)
+hooksecurefunc(ADB, "RafraichirNPC", MajPortraitsPNJ)
+
+local evp = CreateFrame("Frame")
+for _, e in ipairs({ "PLAYER_TARGET_CHANGED", "PLAYER_FOCUS_CHANGED", "UPDATE_MOUSEOVER_UNIT",
+    "NAME_PLATE_UNIT_ADDED", "UNIT_PORTRAIT_UPDATE", "UNIT_MODEL_CHANGED" }) do evp:RegisterEvent(e) end
+evp:SetScript("OnEvent", MajPortraitsPNJ)
+C_Timer.NewTicker(1, MajPortraitsPNJ)
