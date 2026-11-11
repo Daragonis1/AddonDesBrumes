@@ -1,0 +1,26 @@
+name: Créer Archive Propre
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Récupérer le code
+        uses: actions/checkout@v4
+
+      - name: Créer le dossier et le ZIP sans suffixe
+        run: |
+          mkdir AddonDesBrumes
+          shopt -s extglob
+          cp -r !(AddonDesBrumes|.git|.github) AddonDesBrumes/
+          zip -r AddonDesBrumest.zip AddonDesBrumes
+
+      - name: Ajouter le ZIP à la Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: AddonDesBrumes.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
