@@ -1,0 +1,27 @@
+name: Package Addon
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Récupérer le code
+        uses: actions/checkout@v4
+
+      - name: Créer l'archive AddonDesBrumes.zip
+        run: |
+          mkdir AddonDesBrumes
+          shopt -s extglob
+          cp -r !(AddonDesBrumes|.git|.github) AddonDesBrumes/
+          zip -r AddonDesBrumes.zip AddonDesBrumes
+
+      - name: Attacher le ZIP à la Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: AddonDesBrumes.zip
