@@ -147,26 +147,16 @@ end
 ------------------------------------------------------------------------------
 -- OUTILS TALENTS
 ------------------------------------------------------------------------------
-local function TalParNom(nom)
-    local a = ADB.db and ADB.TalArbre(ADB.db.classe)
-    if not a then return nil end
-    local k = Norm(nom)
-    for _, n in pairs(a.noeuds) do
-        if Norm(n.nom) == k then return n end
-    end
+local function Appris()
+    if not ADB.db or not ADB.db.talents then return {} end
+    return ADB.TalNoeudsAppris()
 end
 
-local function Appris()
-    local res = {}
-    if not ADB.db or not ADB.db.talents then return res end
-    local cl = ADB.db.classe
-    local a, ap = ADB.TalArbre(cl), ADB.db.talents.appris[cl]
-    if a and ap then
-        for id in pairs(ap) do
-            if a.noeuds[id] then res[#res + 1] = a.noeuds[id] end
-        end
+local function TalParNom(nom)
+    local k = Norm(nom)
+    for _, n in ipairs(Appris()) do
+        if Norm(n.nom) == k then return n end
     end
-    return res
 end
 
 -- Liste des commandes passives actives (talents appris) pour une commande donnée
@@ -324,10 +314,9 @@ CMD.heal = function(ctx, a) Appliquer(ctx, a[2], 2, Val(ctx, a[3], "heal")) end
 CMD.shield = function(ctx, a) Appliquer(ctx, a[2], 3, Val(ctx, a[3], "shield")) end
 
 CMD.cd = function(ctx, a)
-    local arbre = ADB.db and ADB.TalArbre(ADB.db.classe)
-    if not (a[2] and arbre) then return end
+    if not (a[2] and ADB.db) then return end
     local cd, red = ADB.db.talents.cd, tonumber(a[3]) or 1
-    for _, n in pairs(arbre.noeuds) do
+    for _, n in ipairs(Appris()) do
         local cle = ADB.db.classe .. ":" .. n.id
         local v = cd[cle]
         if v and Selecteur(a[2], n) then
@@ -498,7 +487,7 @@ end
 
 local function TagActif(tag)
     for _, n in ipairs(Appris()) do
-        if n.typ == 2 and ADB.TalATag(n, tag) then return n end
+        if ADB.TalATag(n, tag) then return n end
     end
 end
 

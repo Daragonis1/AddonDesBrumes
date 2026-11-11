@@ -21,5 +21,6 @@ Quetes.lua
 Vue.lua
 Don.lua
 Alt.lua
+Formes.lua
 Ajouts.lua
 AddonDesBrumes.xml

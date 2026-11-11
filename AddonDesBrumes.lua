@@ -64,7 +64,11 @@ ADB.MJ_CLASSE = "Boss et Évènements"
 ADB.CLASSES[#ADB.CLASSES + 1] = { ADB.MJ_CLASSE, 0, 0, 0 }
 ADB.EQUIP_CLASSE = "Équipements"
 ADB.CLASSES[#ADB.CLASSES + 1] = { ADB.EQUIP_CLASSE, 0, 0, 0 }
-function ADB.ClasseSpeciale(n) return n == ADB.MJ_CLASSE or n == ADB.EQUIP_CLASSE end
+ADB.ECLIPSE_CLASSE = "Eclipse"
+ADB.CLASSES[#ADB.CLASSES + 1] = { ADB.ECLIPSE_CLASSE, 0, 0, 0 }
+function ADB.ClasseSpeciale(n)
+    return n == ADB.MJ_CLASSE or n == ADB.EQUIP_CLASSE or n == ADB.ECLIPSE_CLASSE
+end
 
 ADB.RACE_MAP, ADB.CLASSE_MAP = {}, {}
 for _, r in ipairs(ADB.RACES) do ADB.RACE_MAP[r[1]] = { r[2], r[3], r[4] } end

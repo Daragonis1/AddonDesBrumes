@@ -253,6 +253,6 @@ hooksecurefunc(ADB, "RafraichirFiche", MajBtnAlt)
 hooksecurefunc(ADB, "CreerFenetreItem", function()
     local f = ADB.itemFrame
     f:SetHeight(570)
-    UI.Etiq(f, "Tags (ex: dreadsteed)", 20, -512, "GameFontNormalSmall")
+    UI.Etiq(f, "Tags (ex: dreadsteed, AddClassMage)", 20, -512, "GameFontNormalSmall")
     f.TagsEdit = UI.Saisie(f, 24, -530, 268, 600)
 end)

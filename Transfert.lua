@@ -17,6 +17,14 @@ function ADB.TalExporter()
     for _, classe in ipairs(classes) do
         local a = ADB.db.talents.arbres[classe]
         out[#out + 1] = format("T;%s;%d", Esc(classe), a.prochain or 1)
+        local bids = {}
+        for id in pairs(a.colorBoxes or {}) do bids[#bids + 1] = id end
+        table.sort(bids)
+        for _, id in ipairs(bids) do
+            local b = a.colorBoxes[id]
+            out[#out + 1] = format("C;%s;%d;%d;%d;%d;%d;%d;%d;%d;%d", Esc(classe), b.id, b.x1, b.y1, b.x2, b.y2,
+                b.r, b.g, b.b, b.a)
+        end
         local ids = {}
         for id in pairs(a.noeuds) do ids[#ids + 1] = id end
         table.sort(ids)
@@ -40,14 +48,14 @@ end
 local function Parser(txt)
     txt = (txt or ""):gsub("[\r\n]", "")
     if txt:sub(1, 4) ~= "ADB1" then return nil end
-    local R = { arbres = {}, buffs = {}, nb = 0 }
+    local R = { arbres = {}, buffs = {}, nb = 0, nbBox = 0 }
     for rec in txt:gmatch("[^~]+") do
         local p = { strsplit(";", rec) }
         local k = p[1]
         if k == "T" then
             local cl = Decoder(p[2] or "")
             if ADB.CLASSE_MAP[cl] then
-                R.arbres[cl] = R.arbres[cl] or { noeuds = {}, prochain = 1 }
+                R.arbres[cl] = R.arbres[cl] or { noeuds = {}, prochain = 1, colorBoxes = {}, cbProchain = 1 }
                 R.arbres[cl].prochain = max(1, floor(tonumber(p[3]) or 1))
             end
         elseif k == "N" then
@@ -68,12 +76,23 @@ local function Parser(txt)
                     R.nb = R.nb + 1
                 end
             end
+        elseif k == "C" then
+            local a = R.arbres[Decoder(p[2] or "")]
+            if a then
+                local b = ADB.TalValiderColorBox({ id = p[3], x1 = p[4], y1 = p[5], x2 = p[6], y2 = p[7],
+                    r = p[8], g = p[9], b = p[10], a = p[11] })
+                if b and not a.colorBoxes[b.id] then
+                    a.colorBoxes[b.id] = b
+                    a.cbProchain = max(a.cbProchain, b.id + 1)
+                    R.nbBox = R.nbBox + 1
+                end
+            end
         elseif k == "B" then
             R.buffs[#R.buffs + 1] = { id = p[2], nom = Decoder(p[3] or ""), icon = p[4],
                 duree = p[5], typ = p[6], val = p[7] }
         end
     end
-    if R.nb == 0 and #R.buffs == 0 then return nil end
+    if R.nb == 0 and #R.buffs == 0 and R.nbBox == 0 then return nil end
     return R
 end
 

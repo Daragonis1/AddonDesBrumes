@@ -180,7 +180,7 @@ local function CreerNarratif()
     ADB.storyFrame = f
     f:SetPoint("CENTER", -300, 0)
     tinsert(UISpecialFrames, "ADBStoryFrame")
-    f.icon = "INV_Misc_Note_01"
+    f.icon, f.rar = "INV_Misc_Note_01", 1
     UI.Etiq(f, "Nom", 20, -40)
     f.Nom = UI.Saisie(f, 80, -37, 210, ADB.ITEM_NOM_MAX)
     UI.Etiq(f, "Icône", 20, -76)
@@ -204,6 +204,23 @@ local function CreerNarratif()
             f.IconeTex:SetTexture(ADB.IconeTex(v))
         end)
     end)
+    UI.Etiq(f, "Rareté", 124, -78)
+    f.RarDrop = CreateFrame("Frame", "ADBStoryRarDrop", f, "UIDropDownMenuTemplate")
+    f.RarDrop:SetPoint("TOPLEFT", 150, -69)
+    UIDropDownMenu_SetWidth(f.RarDrop, 90)
+    UIDropDownMenu_Initialize(f.RarDrop, function(self, niveau)
+        for i, R in ipairs(ADB.RARETES) do
+            local info = UIDropDownMenu_CreateInfo()
+            info.text = "|cff" .. R[6] .. R[1] .. "|r"
+            info.checked = (f.rar == i)
+            info.func = function()
+                f.rar = i
+                UIDropDownMenu_SetText(f.RarDrop, "|cff" .. R[6] .. R[1] .. "|r")
+            end
+            UIDropDownMenu_AddButton(info, niveau)
+        end
+    end)
+    UIDropDownMenu_SetText(f.RarDrop, "|cff" .. ADB.RARETES[1][6] .. ADB.RARETES[1][1] .. "|r")
     UI.Etiq(f, "Description", 20, -118)
     local cadre = CreateFrame("Frame", nil, f, "BackdropTemplate")
     cadre:SetSize(280, 100)
@@ -240,7 +257,7 @@ local function CreerNarratif()
         end
         local it = ADB.ValiderItem({
             kind = "story",
-            rar = 1,
+            rar = f.rar,
             icon = f.icon,
             nom = nom,
             desc = f.Desc:GetText(),

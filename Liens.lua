@@ -36,24 +36,26 @@ end
 ------------------------------------------------------------------------------
 function ADB.LienDiffuser(ci, n)
     if not IsInGroup() then return end
-    local cle, t = ci .. ":" .. n.id, GetTime()
+    local nid = n.rawid or n.id
+    local cle, t = ci .. ":" .. nid, GetTime()
     if (ADB.lienEnvoye[cle] or -999) + 120 > t then return end
     ADB.lienEnvoye[cle] = t
     local ch = Decouper(n.desc or "", 70)
     local flags = (n.reac and 1 or 0) + (n.bonus and 2 or 0)
-    ADB.TalEnfiler(format("TL;%d;%d;0;" .. ("%d;"):rep(12) .. "%s;%s", ci, n.id, #ch,
+    ADB.TalEnfiler(format("TL;%d;%d;0;" .. ("%d;"):rep(12) .. "%s;%s", ci, nid, #ch,
         n.typ, n.stat, n.inter, n.elem, n.mana, n.lim, flags,
         n.coutPV, n.portee, n.precision, n.zoe, n.icon, Encoder(n.nom)))
     for i, s in ipairs(ch) do
-        ADB.TalEnfiler(format("TL;%d;%d;%d;%d;%s", ci, n.id, i, #ch, Encoder(s)))
+        ADB.TalEnfiler(format("TL;%d;%d;%d;%d;%s", ci, nid, i, #ch, Encoder(s)))
     end
 end
 
 function ADB.LienTexte(n, ci)
+    if n.classe then ci = ADB.TalIndexClasse(n.classe) end
     ci = ci or ADB.TalIndexClasse(ADB.db.classe)
     if not ci then return n.nom end
     ADB.LienDiffuser(ci, n)
-    return format("{ADB:%d:%d:%s}", ci, n.id, (n.nom:gsub("[{}]", "")))
+    return format("{ADB:%d:%d:%s}", ci, n.rawid or n.id, (n.nom:gsub("[{}]", "")))
 end
 
 ------------------------------------------------------------------------------

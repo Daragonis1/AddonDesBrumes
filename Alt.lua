@@ -200,9 +200,9 @@ local function Valider(s)
         end
     end
     s.inv, s.equip = inv, eq
-    local t = { talents = { arbres = {}, appris = s.appris, cd = s.cd } }
+    local t = { talents = { arbres = {}, appris = s.appris, cd = s.cd, extras = s.extras } }
     ADB.TalInitDB(t)
-    s.appris, s.cd = t.talents.appris, t.talents.cd
+    s.appris, s.cd, s.extras = t.talents.appris, t.talents.cd, t.talents.extras
 end
 
 local function Prep()
@@ -218,7 +218,7 @@ local function Prep()
         end,
         __newindex = function(_, k, v) a[k] = v end,
     })
-    rawset(P, "talents", { arbres = D.talents.arbres, appris = a.appris, cd = a.cd })
+    rawset(P, "talents", { arbres = D.talents.arbres, appris = a.appris, cd = a.cd, extras = a.extras })
     if not ADB.altBarre then
         local m = ADB.barre
         ADB.TalCreerBarre()

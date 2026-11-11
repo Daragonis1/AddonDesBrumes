@@ -11,7 +11,8 @@ local IconeTex = ADB.IconeTex
 
 local TAL = {
     COLS = 12,
-    ROWS = 16,
+    ROWS = 32,
+    XOFF = 1000000,
     CELL = 52,
     ICON = 38,
     MAX_REQ = 6,
@@ -23,17 +24,17 @@ local TAL = {
     ZOE_MAX = 200,
     TAGS_MAX = 30,
     TYPES = { "Actif", "Passif" },
-    STATS = { "Aucune", "Force", "Agilité", "Intelligence" },
+    STATS = { "Aucune", "Force", "Agilité", "Intelligence", "Principale" },
     INTERS = { "Dégâts", "Soins", "Bouclier", "Autre" },
     ELEMS = { "Physique", "Sacré", "Ombre", "Chaos", "Feu", "Nature", "Astral", "Givre" },
     LIMITES = { { "1/repos", 1, "r" }, { "1/5 tours", 5, "t" }, { "1/10 tours", 10, "t" },
-        { "1/3 repos", 3, "r" }, { "Illimité", 0, "i" } },
+        { "1/3 repos", 3, "r" }, { "Illimité", 0, "i" }, { "2/repos", 2, "r", 2 } },
 }
 TAL.TAGREQ = {
     dreadsteed = "Pierre d'âme de Destrier",
 }
 ADB.TAL = TAL
-ADB.CMD_TAL = { TN = true, TD = true, TF = true, TG = true, TX = true, TS = true, TE = true, TQ = true, HQ = true, HR = true }
+ADB.CMD_TAL = { TN = true, TD = true, TF = true, TG = true, TX = true, TS = true, TE = true, TQ = true, HQ = true, HR = true, TC = true, TK = true }
 
 ------------------------------------------------------------------------------
 -- 1. DONNEES
@@ -100,11 +101,11 @@ local function ValiderNoeud(t)
         x = Borner(floor(tonumber(t.x) or 1), 1, TAL.COLS),
         y = Borner(floor(tonumber(t.y) or 1), 1, TAL.ROWS),
         typ = Borner(floor(tonumber(t.typ) or 1), 1, 2),
-        stat = Borner(floor(tonumber(t.stat) or 1), 1, 4),
+        stat = Borner(floor(tonumber(t.stat) or 1), 1, #TAL.STATS),
         inter = Borner(floor(tonumber(t.inter) or 4), 1, 4),
         elem = Borner(floor(tonumber(t.elem) or 1), 1, 8),
         mana = Borner(floor(tonumber(t.mana) or 0), 0, TAL.MANA_MAX),
-        lim = Borner(floor(tonumber(t.lim) or 5), 1, 5),
+        lim = Borner(floor(tonumber(t.lim) or 5), 1, #TAL.LIMITES),
         reac = t.reac == true,
         bonus = t.bonus == true,
         icon = icon,
@@ -118,6 +119,37 @@ local function ValiderNoeud(t)
 end
 
 ADB.TalValiderNoeud = ValiderNoeud
+
+------------------------------------------------------------------------------
+-- ColorBox : rectangles colorés de fond (purement visuels), par classe
+------------------------------------------------------------------------------
+local function ValiderColorBox(t)
+    if type(t) ~= "table" then return nil end
+    local id = floor(tonumber(t.id) or 0)
+    if id < 1 then return nil end
+    local x1 = Borner(floor(tonumber(t.x1) or 1), 1, TAL.COLS)
+    local x2 = Borner(floor(tonumber(t.x2) or 1), 1, TAL.COLS)
+    local y1 = Borner(floor(tonumber(t.y1) or 1), 1, TAL.ROWS)
+    local y2 = Borner(floor(tonumber(t.y2) or 1), 1, TAL.ROWS)
+    if x1 > x2 then x1, x2 = x2, x1 end
+    if y1 > y2 then y1, y2 = y2, y1 end
+    return {
+        id = id,
+        x1 = x1,
+        y1 = y1,
+        x2 = x2,
+        y2 = y2,
+        r = Borner(floor(tonumber(t.r) or 80), 0, 255),
+        g = Borner(floor(tonumber(t.g) or 80), 0, 255),
+        b = Borner(floor(tonumber(t.b) or 80), 0, 255),
+        a = Borner(floor(tonumber(t.a) or 30), 5, 100),
+    }
+end
+ADB.TalValiderColorBox = ValiderColorBox
+
+function ADB.ColorBoxMessage(ci, b)
+    return format("TC;%d;%d;%d;%d;%d;%d;%d;%d;%d;%d", ci, b.id, b.x1, b.y1, b.x2, b.y2, b.r, b.g, b.b, b.a)
+end
 
 function ADB.TalInitDB(db)
     if type(db.talents) ~= "table" then db.talents = {} end
@@ -134,9 +166,21 @@ function ADB.TalInitDB(db)
                         maxId = max(maxId, n.id)
                     end
                 end
+                local boxes, maxB = {}, 0
+                if type(a.colorBoxes) == "table" then
+                    for _, tb in pairs(a.colorBoxes) do
+                        local b = ValiderColorBox(tb)
+                        if b and not boxes[b.id] then
+                            boxes[b.id] = b
+                            maxB = max(maxB, b.id)
+                        end
+                    end
+                end
                 arbres[classe] = {
                     prochain = max(maxId + 1, floor(tonumber(a.prochain) or 1)),
-                    noeuds = noeuds
+                    noeuds = noeuds,
+                    colorBoxes = boxes,
+                    cbProchain = max(maxB + 1, floor(tonumber(a.cbProchain) or 1)),
                 }
             end
         end
@@ -161,6 +205,13 @@ function ADB.TalInitDB(db)
         end
     end
     T.cd = cd
+    local ex = {}
+    if type(T.extras) == "table" then
+        for c, v in pairs(T.extras) do
+            if v and ADB.CLASSE_MAP[c] then ex[c] = true end
+        end
+    end
+    T.extras = ex
 end
 
 local function Appris(classe)
@@ -171,7 +222,9 @@ end
 
 function ADB.TalArbre(classe, creer)
     local arbres = ADB.db.talents.arbres
-    if not arbres[classe] and creer then arbres[classe] = { prochain = 1, noeuds = {} } end
+    if not arbres[classe] and creer then
+        arbres[classe] = { prochain = 1, noeuds = {}, colorBoxes = {}, cbProchain = 1 }
+    end
     return arbres[classe]
 end
 
@@ -181,7 +234,31 @@ function ADB.TalIndexClasse(nom)
     end
 end
 
+-- Nœuds des classes additionnelles : proxys à ID décalé (classe * XOFF + id)
+local proxies = {}
+function ADB.TalNoeudExtra(cl, id)
+    local ci = ADB.TalIndexClasse(cl)
+    local a = ADB.TalArbre(cl)
+    local n = a and a.noeuds[id]
+    if not (ci and n) then return nil end
+    local pid = ci * TAL.XOFF + id
+    local p = proxies[pid]
+    if not p or getmetatable(p).__index ~= n then
+        p = setmetatable({ id = pid, rawid = id, classe = cl }, { __index = n })
+        proxies[pid] = p
+    end
+    return p
+end
+
+function ADB.TalNoeudExtraId(pid)
+    local ci, id = floor(pid / TAL.XOFF), pid % TAL.XOFF
+    local c = ADB.CLASSES[ci]
+    if not c or c[1] == ADB.db.classe or not ADB.TalAcces(c[1]) then return nil end
+    return ADB.TalNoeudExtra(c[1], id)
+end
+
 function ADB.TalNoeudPropre(id)
+    if type(id) == "number" and id >= TAL.XOFF then return ADB.TalNoeudExtraId(id) end
     local a = ADB.TalArbre(ADB.db.classe)
     return a and a.noeuds[id] or nil
 end
@@ -192,13 +269,83 @@ end
 
 function ADB.TalPointsTotal() return 3 + (ADB.db.level or 1) end
 
+------------------------------------------------------------------------------
+-- Classes additionnelles : tag d'objet "AddClassNom" (inventaire ou équipement porté)
+------------------------------------------------------------------------------
+local ACCENTS = {
+    ["é"] = "e",
+    ["è"] = "e",
+    ["ê"] = "e",
+    ["ë"] = "e",
+    ["É"] = "e",
+    ["à"] = "a",
+    ["â"] = "a",
+    ["î"] = "i",
+    ["ï"] = "i",
+    ["ô"] = "o",
+    ["û"] = "u",
+    ["ù"] = "u",
+    ["ç"] = "c"
+}
+local function Slug(s)
+    s = s:lower()
+    s = s:gsub("[\195][\128-\191]", function(c) return ACCENTS[c] or "" end)
+    return (s:gsub("[^%w]", ""))
+end
+TAL.CLASSTAG = {}
+for _, c in ipairs(ADB.CLASSES) do
+    if c[1] ~= ADB.MJ_CLASSE and c[1] ~= ADB.EQUIP_CLASSE then
+        TAL.CLASSTAG["addclass" .. Slug(c[1])] = c[1]
+    end
+end
+
+function ADB.TalClassesSupp()
+    local res, vus, db = {}, {}, ADB.db
+    if not db then return res end
+    local function Scan(it)
+        if type(it) ~= "table" or type(it.tags) ~= "table" then return end
+        for _, t in ipairs(it.tags) do
+            local c = TAL.CLASSTAG[t]
+            if c and c ~= db.classe then vus[c] = true end
+        end
+    end
+    for i = 1, ADB.INV_SLOTS do Scan(db.inv and db.inv[i]) end
+    for _, s in ipairs(ADB.SLOTS) do Scan(db.equip and db.equip[s[1]]) end
+    for _, c in ipairs(ADB.CLASSES) do
+        if vus[c[1]] then res[#res + 1] = c[1] end
+    end
+    return res
+end
+
+function ADB.TalClassesAcces()
+    local res = { ADB.db.classe }
+    for _, c in ipairs(ADB.TalClassesSupp()) do res[#res + 1] = c end
+    return res
+end
+
+function ADB.TalAcces(cl)
+    if not cl then return false end
+    for _, c in ipairs(ADB.TalClassesAcces()) do
+        if c == cl then return true end
+    end
+    return false
+end
+
+local function CV(cl)
+    if cl then return cl end
+    if ADB.talVue and ADB.TalAcces(ADB.talVue) then return ADB.talVue end
+    return ADB.db.classe
+end
+
 function ADB.TalPointsUtilises()
-    local cl = ADB.db.classe
-    local a, n = ADB.TalArbre(cl), 0
-    if a then
-        for id in pairs(Appris(cl)) do
-            local nd = a.noeuds[id]
-            if nd and not ADB.TalATag(nd, "refund") then n = n + 1 end
+    local n = 0
+    for _, cl in ipairs(ADB.TalClassesAcces()) do
+        local a = ADB.TalArbre(cl)
+        if a then
+            for id in pairs(Appris(cl)) do
+                local nd = a.noeuds[id]
+                if nd and not ADB.TalATag(nd, "refund") then n = n + 1 end
+            end
         end
     end
     return n
@@ -207,38 +354,62 @@ end
 function ADB.TalPointsRestants() return ADB.TalPointsTotal() - ADB.TalPointsUtilises() end
 
 function ADB.TalNettoyerPoints()
-    local cl = ADB.db.classe
-    local a = ADB.TalArbre(cl)
-    if not a or next(a.noeuds) == nil then return end
-    local ap, ids = Appris(cl), {}
-    for id in pairs(ap) do
-        if a.noeuds[id] then ids[#ids + 1] = id else ap[id] = nil end
+    local T = ADB.db.talents
+    if type(T.extras) ~= "table" then T.extras = {} end
+    local acces, ok = ADB.TalClassesAcces(), {}
+    for i, c in ipairs(acces) do
+        ok[c] = true
+        if i > 1 then T.extras[c] = true end
     end
-    table.sort(ids)
+    -- classe additionnelle perdue (objet retiré) : compétences oubliées, points récupérés
+    for c in pairs(T.extras) do
+        if not ok[c] then
+            T.appris[c] = nil
+            T.extras[c] = nil
+        end
+    end
+    local ids = {}
+    for rang, cl in ipairs(acces) do
+        local a = ADB.TalArbre(cl)
+        if a and next(a.noeuds) ~= nil then
+            local ap = Appris(cl)
+            for id in pairs(ap) do
+                if a.noeuds[id] then ids[#ids + 1] = { cl = cl, id = id, r = rang } else ap[id] = nil end
+            end
+        end
+    end
+    table.sort(ids, function(p, q)
+        if p.r ~= q.r then return p.r < q.r end
+        return p.id < q.id
+    end)
     local payants = {}
-    for _, id in ipairs(ids) do
-        if not ADB.TalATag(a.noeuds[id], "refund") then payants[#payants + 1] = id end
+    for _, e in ipairs(ids) do
+        if not ADB.TalATag(ADB.TalArbre(e.cl).noeuds[e.id], "refund") then payants[#payants + 1] = e end
     end
-    for i = #payants, ADB.TalPointsTotal() + 1, -1 do ap[payants[i]] = nil end
+    for i = #payants, ADB.TalPointsTotal() + 1, -1 do Appris(payants[i].cl)[payants[i].id] = nil end
     local vue
-    for _, id in ipairs(ids) do
-        if ap[id] and a.noeuds[id].spe then
-            if vue then ap[id] = nil else vue = true end
+    for _, e in ipairs(ids) do
+        local ap = Appris(e.cl)
+        if ap[e.id] and ADB.TalArbre(e.cl).noeuds[e.id].spe then
+            if vue then ap[e.id] = nil else vue = true end
         end
     end
 end
 
--- Specialisation apprise (une seule)
+-- Specialisation apprise (une seule, toutes classes confondues)
 function ADB.TalSpeActive()
-    local cl = ADB.db.classe
-    local a = ADB.TalArbre(cl)
-    if not a then return nil end
-    local best
-    for id in pairs(Appris(cl)) do
-        local n = a.noeuds[id]
-        if n and n.spe and (not best or n.id < best.id) then best = n end
+    for _, cl in ipairs(ADB.TalClassesAcces()) do
+        local a = ADB.TalArbre(cl)
+        if a then
+            local best
+            for id in pairs(Appris(cl)) do
+                local n = a.noeuds[id]
+                if n and n.spe and (not best or n.id < best.id) then best = n end
+            end
+            if best then return best end
+        end
     end
-    return best
+    return nil
 end
 
 function ADB.TalATag(n, tag)
@@ -279,8 +450,8 @@ function ADB.TalTagsRequis(n)
     return res
 end
 
-function ADB.TalPrerequisOK(n)
-    local cl = ADB.db.classe
+function ADB.TalPrerequisOK(n, cl)
+    cl = CV(cl)
     local a, ap = ADB.TalArbre(cl), Appris(cl)
     for _, r in ipairs(n.req) do
         if a.noeuds[r] and not ap[r] then return false end
@@ -291,25 +462,40 @@ function ADB.TalPrerequisOK(n)
     return true
 end
 
-function ADB.TalPeutApprendre(n)
-    if Appris(ADB.db.classe)[n.id] then return false end
+function ADB.TalPeutApprendre(n, cl)
+    cl = CV(cl)
+    if Appris(cl)[n.id] then return false end
     if ADB.TalPointsRestants() <= 0 and not ADB.TalATag(n, "refund") then return false end
-    if n.spe then
-        local s = ADB.TalSpeActive()
-        if s and s.id ~= n.id then return false end
+    if n.spe and ADB.TalSpeActive() then return false end
+    return ADB.TalPrerequisOK(n, cl)
+end
+
+-- Tous les talents appris (classe principale : nœuds réels ; classes additionnelles : proxys)
+function ADB.TalNoeudsAppris()
+    local res = {}
+    for i, cl in ipairs(ADB.TalClassesAcces()) do
+        local a = ADB.TalArbre(cl)
+        if a then
+            for id in pairs(Appris(cl)) do
+                local n = a.noeuds[id]
+                if n then res[#res + 1] = (i == 1) and n or ADB.TalNoeudExtra(cl, id) end
+            end
+        end
     end
-    return ADB.TalPrerequisOK(n)
+    return res
 end
 
 function ADB.TalActifs()
-    local cl = ADB.db.classe
-    local a, res = ADB.TalArbre(cl), {}
-    if not a then return res end
-    for id in pairs(Appris(cl)) do
-        local n = a.noeuds[id]
-        if n and n.typ == 1 then res[#res + 1] = n end
+    local rk = {}
+    for i, c in ipairs(ADB.TalClassesAcces()) do rk[c] = i end
+    local res = {}
+    for _, n in ipairs(ADB.TalNoeudsAppris()) do
+        if n.typ == 1 then res[#res + 1] = n end
     end
+    local function R(n) return n.classe and rk[n.classe] or 1 end
     table.sort(res, function(p, q)
+        local rp, rq = R(p), R(q)
+        if rp ~= rq then return rp < rq end
         if p.y ~= q.y then return p.y < q.y end
         if p.x ~= q.x then return p.x < q.x end
         return p.id < q.id
@@ -320,11 +506,20 @@ end
 ------------------------------------------------------------------------------
 -- 2. VALEURS DYNAMIQUES, COOLDOWNS, ETAT
 ------------------------------------------------------------------------------
-function ADB.TalMult(n)
-    if n.stat <= 1 then return 1 end
+function ADB.TalStatEff(n)
+    if n.stat ~= 5 then return n.stat end
     local d = ADB.GetStatBlock(ADB.playerName)
     if not d then return 1 end
-    return ({ d.multForce, d.multAgi, d.multInt })[n.stat - 1]
+    if d.force >= d.agilite and d.force >= d.intelligence then return 2 end
+    return d.agilite >= d.intelligence and 3 or 4
+end
+
+function ADB.TalMult(n)
+    local s = ADB.TalStatEff(n)
+    if s <= 1 then return 1 end
+    local d = ADB.GetStatBlock(ADB.playerName)
+    if not d then return 1 end
+    return ({ d.multForce, d.multAgi, d.multInt })[s - 1]
 end
 
 -- "[2]" -> brut : "2" (bleu) / modifie : (valeur+bonus)*mult (vert). Retourne texte, 1re valeur modifiee.
@@ -347,6 +542,13 @@ local function CleCD(id) return ADB.db.classe .. ":" .. id end
 
 function ADB.TalCD(n) return ADB.db.talents.cd[CleCD(n.id)] or 0 end
 
+function ADB.TalPoserCD(n)
+    local L = TAL.LIMITES[n.lim]
+    if L[2] <= 0 then return end
+    local cd, k = ADB.db.talents.cd, CleCD(n.id)
+    if L[4] then cd[k] = (cd[k] or 0) + 1 else cd[k] = L[2] end
+end
+
 function ADB.TalTickCD(unite)
     local cd, arbres = ADB.db.talents.cd, ADB.db.talents.arbres
     for cle, v in pairs(cd) do
@@ -356,7 +558,7 @@ function ADB.TalTickCD(unite)
         if not n then
             cd[cle] = nil
         elseif TAL.LIMITES[n.lim][3] == unite then
-            if v <= 1 then cd[cle] = nil else cd[cle] = v - 1 end
+            if TAL.LIMITES[n.lim][4] or v <= 1 then cd[cle] = nil else cd[cle] = v - 1 end
         end
     end
 end
@@ -384,9 +586,10 @@ function ADB.TalEtat(n)
     if n.coutPV > 0 and d.pv < n.coutPV then
         return false, format("PV insuffisants (%d / %d requis).", d.pv, n.coutPV)
     end
-    local cd = ADB.TalCD(n)
-    if cd > 0 then
-        local u = TAL.LIMITES[n.lim][3]
+    local cd, L = ADB.TalCD(n), TAL.LIMITES[n.lim]
+    if cd >= (L[4] or 1) then
+        if L[4] then return false, "Limite d'utilisation atteinte (jusqu'au prochain repos).", "cd" end
+        local u = L[3]
         return false, format("Compétence en recharge : %d %s restant%s.", cd,
             u == "t" and (cd > 1 and "tours" or "tour") or "repos", ""), "cd"
     end
@@ -418,7 +621,9 @@ function ADB.TalInfobulle(owner, n, mode, G, ancre)
     G:AddLine(n.nom, 1, 0.82, 0)
     G:AddLine(TAL.TYPES[n.typ], 0.7, 0.7, 0.7)
     if n.spe then G:AddLine("Spécialisation (une seule à la fois)", 0.8, 0.5, 1) end
-    if n.stat > 1 then G:AddLine("Statistique : " .. TAL.STATS[n.stat], 1, 1, 1) end
+    if n.stat > 1 then
+        G:AddLine("Statistique : " .. TAL.STATS[ADB.TalStatEff(n)] .. (n.stat == 5 and " (Principale)" or ""), 1, 1, 1)
+    end
     G:AddLine("Interaction : " .. TAL.INTERS[n.inter], 1, 1, 1)
     G:AddLine("Élément : " .. TAL.ELEMS[n.elem], 1, 1, 1)
     if n.typ == 1 then
@@ -445,9 +650,9 @@ function ADB.TalSurvol(b)
     local n = a and a.noeuds[b.id]
     if not n then return end
     local f = ADB.talFrame
-    local propre = ADB.talVue == ADB.db.classe
+    local propre = ADB.TalAcces(ADB.talVue)
     local G = ADB.TalInfobulle(b, n, "arbre")
-    local ap = Appris(ADB.db.classe)
+    local ap = propre and Appris(ADB.talVue) or {}
     local tr = ADB.TalTagsRequis(n)
     if #n.req > 0 or #tr > 0 then
         G:AddLine(" ")
@@ -471,7 +676,7 @@ function ADB.TalSurvol(b)
     elseif propre then
         if ap[n.id] then
             G:AddLine("Appris - clic droit : désapprendre", 0.3, 1, 0.3)
-        elseif ADB.TalPeutApprendre(n) then
+        elseif ADB.TalPeutApprendre(n, ADB.talVue) then
             G:AddLine("Clic gauche : apprendre (1 point)", 0.3, 1, 0.3)
         else
             G:AddLine("Verrouillé (prérequis, points ou spécialisation)", 1, 0.3, 0.3)
@@ -543,6 +748,10 @@ function ADB.TalDiffuserClasse(ci)
         for _, id in ipairs(ids) do
             for _, m in ipairs(MessagesNoeud(ci, a.noeuds[id])) do ADB.TalEnfiler(m) end
         end
+        local bid = {}
+        for id in pairs(a.colorBoxes or {}) do bid[#bid + 1] = id end
+        table.sort(bid)
+        for _, id in ipairs(bid) do ADB.TalEnfiler(ADB.ColorBoxMessage(ci, a.colorBoxes[id])) end
     end
     ADB.TalEnfiler(format("TE;%d", ci))
 end
@@ -576,6 +785,24 @@ function ADB.TalPlanifierNoeud(ci, id)
     end)
 end
 
+function ADB.TalPlanifierColorBox(ci, id)
+    if not ci or not ADB.EstMJ() then return end
+    ADB.talBoxPlan[ci .. ":" .. id] = { ci, id }
+    if ADB.talBoxTimer then return end
+    ADB.talBoxTimer = true
+    C_Timer.After(0.8, function()
+        ADB.talBoxTimer = false
+        if ADB.EstMJ() then
+            for _, p in pairs(ADB.talBoxPlan) do
+                local a = ADB.db.talents.arbres[ADB.CLASSES[p[1]][1]]
+                local b = a and a.colorBoxes and a.colorBoxes[p[2]]
+                if b then ADB.TalEnfiler(ADB.ColorBoxMessage(p[1], b)) end
+            end
+        end
+        wipe(ADB.talBoxPlan)
+    end)
+end
+
 function ADB.TalDemanderArbre()
     if not ADB.db or not ADB.talDemande then return end
     if not IsInGroup() then
@@ -590,13 +817,17 @@ function ADB.TalDemanderArbre()
         wipe(ADB.talDemande)
     end
     if not mj then return end
-    local classe = ADB.db.classe
-    if ADB.talDemande[classe] then return end
-    ADB.talDemande[classe] = true
-    local ci = ADB.TalIndexClasse(classe)
-    C_Timer.After(2, function()
-        if ci and IsInGroup() and not ADB.EstMJ() then ADB.Envoyer("TQ;" .. ci) end
-    end)
+    local liste = { ADB.db.classe }
+    for _, c in ipairs(ADB.TalClassesSupp()) do liste[#liste + 1] = c end
+    for k, classe in ipairs(liste) do
+        if not ADB.talDemande[classe] then
+            ADB.talDemande[classe] = true
+            local ci = ADB.TalIndexClasse(classe)
+            C_Timer.After(2 + (k - 1) * 0.5, function()
+                if ci and IsInGroup() and not ADB.EstMJ() then ADB.Envoyer("TQ;" .. ci) end
+            end)
+        end
+    end
 end
 
 function ADB.RecevoirTalent(cmd, nom, message)
@@ -647,15 +878,38 @@ function ADB.RecevoirTalent(cmd, nom, message)
     if ADB.EstMJ() or not ADB.EstNomMJ(nom) then return end
     local ci = tonumber(p[2])
     local classe = ci and ADB.CLASSES[floor(ci)] and ADB.CLASSES[floor(ci)][1]
-    if not classe or (classe ~= ADB.db.classe and classe ~= ADB.EQUIP_CLASSE) then return end
+    if not classe or (classe ~= ADB.EQUIP_CLASSE and not ADB.TalAcces(classe)) then return end
     local a = ADB.TalArbre(classe, true)
 
     if cmd == "TS" then
         for _, n in pairs(a.noeuds) do n.perime = true end
+        for _, b in pairs(a.colorBoxes or {}) do b.perime = true end
     elseif cmd == "TE" then
         for id, n in pairs(a.noeuds) do
             if n.perime then a.noeuds[id] = nil end
         end
+        for id, b in pairs(a.colorBoxes or {}) do
+            if b.perime then a.colorBoxes[id] = nil end
+        end
+    elseif cmd == "TC" then
+        local b = ValiderColorBox({
+            id = p[3],
+            x1 = p[4],
+            y1 = p[5],
+            x2 = p[6],
+            y2 = p[7],
+            r = p[8],
+            g = p[9],
+            b = p[10],
+            a = p[11]
+        })
+        if b then
+            a.colorBoxes = a.colorBoxes or {}
+            a.colorBoxes[b.id] = b
+            a.cbProchain = max(a.cbProchain or 1, b.id + 1)
+        end
+    elseif cmd == "TK" then
+        if a.colorBoxes then a.colorBoxes[floor(tonumber(p[3]) or 0)] = nil end
     elseif cmd == "TX" then
         a.noeuds[floor(tonumber(p[3]) or 0)] = nil
     elseif cmd == "TN" then
@@ -778,9 +1032,7 @@ function ADB.TalExecuter(n, data, horsTour)
     local db = ADB.db
     db.pm = max(0, db.pm - n.mana)
     if n.coutPV > 0 then db.pv = max(0, db.pv - n.coutPV) end
-    local L = TAL.LIMITES[n.lim]
-    if L[2] > 0 then db.talents.cd[CleCD(n.id)] = L[2] end
-
+    ADB.TalPoserCD(n)
     local qui = ADB.NomAffiche(ADB.playerName)
     local cibles = data.cibles
     if (not cibles or #cibles == 0) and not data.cible and n.inter >= 2 and n.inter <= 3 then
@@ -944,7 +1196,7 @@ StaticPopupDialogs["ADB_TAL_RESET"] = {
     hideOnEscape = 1,
     preferredIndex = 3,
     OnAccept = function()
-        wipe(Appris(ADB.db.classe))
+        for _, c in ipairs(ADB.TalClassesAcces()) do wipe(Appris(c)) end
         ADB.TalRafraichir()
     end,
 }
@@ -1195,10 +1447,10 @@ function ADB.TalClicNoeud(b, bouton)
     elseif ADB.talVue == ADB.MJ_CLASSE then
         if bouton == "LeftButton" and ADB.PeutEditerTalents() then ADB.MJDeclencher(n) end
         return
-    elseif ADB.talVue == ADB.db.classe then
-        local ap = Appris(ADB.db.classe)
+    elseif ADB.TalAcces(ADB.talVue) then
+        local ap = Appris(ADB.talVue)
         if bouton == "LeftButton" then
-            if ADB.TalPeutApprendre(n) then
+            if ADB.TalPeutApprendre(n, ADB.talVue) then
                 ap[n.id] = true
             elseif not ap[n.id] then
                 local s = n.spe and ADB.TalSpeActive()
@@ -1226,11 +1478,143 @@ function ADB.TalClicNoeud(b, bouton)
     ADB.TalRafraichir()
 end
 
+------------------------------------------------------------------------------
+-- ColorBox : creation / edition / suppression (mode editeur)
+------------------------------------------------------------------------------
+local CB_PAL = { { 60, 110, 200 }, { 200, 80, 80 }, { 80, 170, 90 }, { 190, 150, 50 }, { 150, 80, 190 }, { 60, 170, 170 } }
+
+function ADB.ColorBoxEn(a, x, y)
+    local best, aire
+    for _, b in pairs(a and a.colorBoxes or {}) do
+        if x >= b.x1 and x <= b.x2 and y >= b.y1 and y <= b.y2 then
+            local s = (b.x2 - b.x1 + 1) * (b.y2 - b.y1 + 1)
+            if not best or s < aire or (s == aire and b.id > best.id) then best, aire = b, s end
+        end
+    end
+    return best
+end
+
+function ADB.ColorBoxCreer(x1, y1, x2, y2)
+    if not ADB.PeutEditerTalents() then return end
+    local a = ADB.TalArbre(ADB.talVue, true)
+    a.colorBoxes = a.colorBoxes or {}
+    local id = max(1, floor(tonumber(a.cbProchain) or 1))
+    while a.colorBoxes[id] do id = id + 1 end
+    a.cbProchain = id + 1
+    local p = CB_PAL[(id - 1) % #CB_PAL + 1]
+    a.colorBoxes[id] = ValiderColorBox({
+        id = id,
+        x1 = x1,
+        y1 = y1,
+        x2 = x2,
+        y2 = y2,
+        r = p[1],
+        g = p[2],
+        b = p[3],
+        a = 30
+    })
+    ADB.talFrame.selBox = id
+    ADB.TalPlanifierColorBox(ADB.TalIndexClasse(ADB.talVue), id)
+end
+
+function ADB.ColorBoxModifier(ch, id)
+    if not ADB.PeutEditerTalents() then return end
+    local f = ADB.talFrame
+    local a = ADB.TalArbre(ADB.talVue)
+    id = id or f.selBox
+    local b = a and a.colorBoxes and a.colorBoxes[id]
+    if not b then return end
+    local t = { id = b.id, x1 = b.x1, y1 = b.y1, x2 = b.x2, y2 = b.y2, r = b.r, g = b.g, b = b.b, a = b.a }
+    for k, v in pairs(ch) do t[k] = v end
+    a.colorBoxes[id] = ValiderColorBox(t)
+    ADB.TalPlanifierColorBox(ADB.TalIndexClasse(ADB.talVue), id)
+    ADB.TalDessiner()
+end
+
+function ADB.ColorBoxSupprimer()
+    if not ADB.PeutEditerTalents() then return end
+    local f = ADB.talFrame
+    local a = ADB.TalArbre(ADB.talVue)
+    local id = f.selBox
+    if not (a and id and a.colorBoxes and a.colorBoxes[id]) then return end
+    a.colorBoxes[id] = nil
+    f.selBox = nil
+    if ADB.EstMJ() then ADB.TalEnfiler(format("TK;%d;%d", ADB.TalIndexClasse(ADB.talVue), id)) end
+    ADB.TalDessiner()
+end
+
+function ADB.ColorBoxSelecteur()
+    local f = ADB.talFrame
+    local a = ADB.TalArbre(ADB.talVue)
+    local b = a and a.colorBoxes and a.colorBoxes[f.selBox or 0]
+    if not b then return end
+    local P = ColorPickerFrame
+    P:SetFrameStrata("FULLSCREEN_DIALOG")
+    P.hasOpacity = true
+    P.opacity = 1 - b.a / 100
+    P.previousValues = { b.r / 255, b.g / 255, b.b / 255, 1 - b.a / 100 }
+    P.cancelFunc = function(prev)
+        ADB.ColorBoxModifier({
+            r = floor(prev[1] * 255 + 0.5),
+            g = floor(prev[2] * 255 + 0.5),
+            b = floor(prev[3] * 255 + 0.5),
+            a = floor((1 - prev[4]) * 100 + 0.5)
+        })
+    end
+    P:SetColorRGB(b.r / 255, b.g / 255, b.b / 255)
+    P.func = function()
+        local r, g, bl = P:GetColorRGB()
+        ADB.ColorBoxModifier({ r = floor(r * 255 + 0.5), g = floor(g * 255 + 0.5), b = floor(bl * 255 + 0.5) })
+    end
+    P.opacityFunc = function()
+        ADB.ColorBoxModifier({ a = floor((1 - OpacitySliderFrame:GetValue()) * 100 + 0.5) })
+    end
+    P:Hide()
+    P:Show()
+end
+
+function ADB.TalClicCaseZone(c, a)
+    local f = ADB.talFrame
+    if f.zEtat == "c1" then
+        f.zc, f.zEtat = { c.x, c.y }, "c2"
+    elseif f.zEtat == "c2" and f.zc then
+        local x1, y1 = f.zc[1], f.zc[2]
+        local edit = f.zEdit
+        f.zEtat, f.zc, f.zEdit = nil, nil, nil
+        if edit and a.colorBoxes and a.colorBoxes[edit] then
+            ADB.ColorBoxModifier({ x1 = x1, y1 = y1, x2 = c.x, y2 = c.y }, edit)
+        else
+            ADB.ColorBoxCreer(x1, y1, c.x, c.y)
+        end
+    else
+        local b = ADB.ColorBoxEn(a, c.x, c.y)
+        f.selBox = b and b.id or nil
+    end
+    ADB.TalDessiner()
+end
+
+function ADB.TalMajZone()
+    local f = ADB.talFrame
+    local Z = f.Ed.Z
+    local a = ADB.TalArbre(ADB.talVue)
+    local b = f.selBox and a and a.colorBoxes and a.colorBoxes[f.selBox]
+    if f.selBox and not b then f.selBox = nil end
+    Z.Info:SetText(b and format("Zone #%d : cases (%d,%d) à (%d,%d).", b.id, b.x1, b.y1, b.x2, b.y2)
+        or "Aucune zone sélectionnée. Cliquez dans une zone existante pour la sélectionner, ou créez-en une.")
+    for _, w in ipairs({ Z.BtnRedef, Z.BtnSuppr, Z.Sw, Z.Hex, Z.Alpha, Z.LC, Z.LH, Z.LA }) do w:SetShown(b ~= nil) end
+    if b then
+        Z.SwTex:SetColorTexture(b.r / 255, b.g / 255, b.b / 255, 1)
+        if not Z.Hex:HasFocus() then Z.Hex:SetText(format("%02X%02X%02X", b.r, b.g, b.b)) end
+        if not Z.Alpha:HasFocus() then Z.Alpha:SetText(b.a) end
+    end
+end
+
 function ADB.TalClicCase(c)
     local f = ADB.talFrame
     local a = ADB.TalArbre(ADB.talVue, true)
     local ci = ADB.TalIndexClasse(ADB.talVue)
-    if f.mode == "deplacer" and f.sel and a.noeuds[f.sel] then
+    if f.zoneMode then return ADB.TalClicCaseZone(c, a) end
+    if (f.mode == "deplacer" or IsShiftKeyDown()) and f.sel and a.noeuds[f.sel] then
         local n = a.noeuds[f.sel]
         n.x, n.y = c.x, c.y
         ADB.TalPlanifierNoeud(ci, n.id)
@@ -1289,7 +1673,7 @@ local function ListeClasses()
     if ADB.PeutEditerTalents() then
         for _, c in ipairs(ADB.CLASSES) do t[#t + 1] = c[1] end
     else
-        t[1] = ADB.db.classe
+        for _, c in ipairs(ADB.TalClassesAcces()) do t[#t + 1] = c end
     end
     return t
 end
@@ -1305,10 +1689,25 @@ function ADB.TalMajPanneau()
     f.BtnEdit:SetShown(ADB.PeutEditerTalents())
     f.BtnEdit:SetText(ed and "Quitter l'éditeur" or "Mode éditeur")
     f.BtnReset:SetShown(not ed)
-    f.Aide:SetText(f.mode == "lien" and "|cffffd100Cliquez le talent PRÉREQUIS.|r"
-        or f.mode == "deplacer" and "|cffffd100Cliquez une case vide.|r" or "")
+    f.BtnZone:SetShown(ed)
+    f.BtnZone:SetText(f.zoneMode and "Mode talents" or "Zones (ColorBox)")
+    local aide = f.mode == "lien" and "|cffffd100Cliquez le talent PRÉREQUIS.|r"
+        or f.mode == "deplacer" and "|cffffd100Cliquez une case vide.|r" or ""
+    if f.zoneMode then
+        aide = f.zEtat == "c1" and "|cffffd100Cliquez le 1er coin.|r"
+            or f.zEtat == "c2" and "|cffffd100Cliquez le coin opposé.|r" or ""
+    end
+    f.Aide:SetText(aide)
     Ed:SetShown(ed)
     if not ed then return end
+    if f.zoneMode then
+        Ed.Vide:Hide()
+        C:Hide()
+        Ed.Z:Show()
+        ADB.TalMajZone()
+        return
+    end
+    Ed.Z:Hide()
     local n = SelNode()
     Ed.Vide:SetShown(n == nil)
     C:SetShown(n ~= nil)
@@ -1339,15 +1738,17 @@ function ADB.TalDessiner()
     if not f or not f:IsShown() or not ADB.db then return end
     if not ADB.PeutEditerTalents() then
         f.edition = false
-        ADB.talVue = ADB.db.classe
+        if not (ADB.talVue and ADB.TalAcces(ADB.talVue)) then ADB.talVue = ADB.db.classe end
     end
     ADB.talVue = ADB.talVue or ADB.db.classe
     local cl = ADB.talVue
-    local propre = (cl == ADB.db.classe)
+    local propre = ADB.TalAcces(cl)
     local ed = f.edition and true or false
+    if not ed then f.zoneMode, f.zEtat, f.zc, f.zEdit = nil, nil, nil, nil end
+    local zm = f.zoneMode and true or false
     local a = ADB.TalArbre(cl)
     local noeuds = a and a.noeuds or {}
-    local ap = Appris(ADB.db.classe)
+    local ap = propre and Appris(cl) or {}
     if f.sel and not noeuds[f.sel] then f.sel = nil end
 
     local liste, occ = {}, {}
@@ -1359,7 +1760,42 @@ function ADB.TalDessiner()
 
     if ed and not f.cases then CreerCases(f) end
     if f.cases then
-        for i, c in ipairs(f.cases) do c:SetShown(ed and not occ[i]) end
+        for i, c in ipairs(f.cases) do c:SetShown(ed and (zm or not occ[i])) end
+    end
+
+    local cbs = {}
+    for _, b in pairs(a and a.colorBoxes or {}) do cbs[#cbs + 1] = b end
+    table.sort(cbs, function(p, q) return p.id < q.id end)
+    for i, b in ipairs(cbs) do
+        local t = f.boxTex[i]
+        if not t then
+            t = f.canvas:CreateTexture(nil, "BACKGROUND", nil, 1)
+            f.boxTex[i] = t
+        end
+        t:ClearAllPoints()
+        t:SetPoint("TOPLEFT", f.canvas, "TOPLEFT", (b.x1 - 1) * TAL.CELL, -(b.y1 - 1) * TAL.CELL)
+        t:SetPoint("BOTTOMRIGHT", f.canvas, "TOPLEFT", b.x2 * TAL.CELL, -b.y2 * TAL.CELL)
+        t:SetColorTexture(b.r / 255, b.g / 255, b.b / 255, b.a / 100)
+        t:Show()
+    end
+    for i = #cbs + 1, #f.boxTex do f.boxTex[i]:Hide() end
+    do
+        local bs = f.boxSel
+        local sb = a and a.colorBoxes and a.colorBoxes[f.selBox or 0]
+        local x1, y1, x2, y2
+        if f.zEtat == "c2" and f.zc then
+            x1, y1, x2, y2 = f.zc[1], f.zc[2], f.zc[1], f.zc[2]
+        elseif sb then
+            x1, y1, x2, y2 = sb.x1, sb.y1, sb.x2, sb.y2
+        end
+        if zm and x1 then
+            bs:ClearAllPoints()
+            bs:SetPoint("TOPLEFT", f.canvas, "TOPLEFT", (x1 - 1) * TAL.CELL, -(y1 - 1) * TAL.CELL)
+            bs:SetPoint("BOTTOMRIGHT", f.canvas, "TOPLEFT", x2 * TAL.CELL, -y2 * TAL.CELL)
+            bs:Show()
+        else
+            bs:Hide()
+        end
     end
 
     wipe(f.par)
@@ -1370,7 +1806,7 @@ function ADB.TalDessiner()
         b:SetPoint("CENTER", f.canvas, "TOPLEFT", (n.x - 0.5) * TAL.CELL, -(n.y - 0.5) * TAL.CELL)
         b.tex:SetTexture(IconeTex(n.icon))
         local appris = propre and ap[n.id] and true or false
-        local ok = (propre and not appris and ADB.TalPeutApprendre(n)) or (cl == ADB.MJ_CLASSE and not ed)
+        local ok = (propre and not appris and ADB.TalPeutApprendre(n, cl)) or (cl == ADB.MJ_CLASSE and not ed)
         local r, g, bl = 0.35, 0.35, 0.35
         if ed then
             r, g, bl = 0.8, 0.8, 0.8
@@ -1383,6 +1819,7 @@ function ADB.TalDessiner()
         b.bord:SetColorTexture(r, g, bl, 1)
         b.tex:SetDesaturated(not (ed or appris or ok))
         b.marque:SetText(n.spe and "S" or (n.typ == 2 and "P" or ""))
+        b:EnableMouse(not zm)
         b:Show()
         f.par[n.id] = b
     end
@@ -1430,12 +1867,14 @@ function ADB.TalDessiner()
     ADB.TalMajPanneau()
 end
 
+local LIM_ORDRE = { 1, 6, 2, 3, 4, 5 }
+
 function ADB.TalCreer()
     local PX = 672
     local f = FenetreBase("ADBTalentFrame", 950, 690, "Arbre de talents")
     ADB.talFrame = f
     f:SetPoint("CENTER", 0, 0)
-    f.btns, f.lines, f.par = {}, {}, {}
+    f.btns, f.lines, f.par, f.boxTex = {}, {}, {}, {}
     tinsert(UISpecialFrames, "ADBTalentFrame")
 
     local sf = CreateFrame("ScrollFrame", "ADBTalScroll", f, "UIPanelScrollFrameTemplate")
@@ -1461,7 +1900,7 @@ function ADB.TalCreer()
         end,
         function(i, lbl)
             ADB.talVue = lbl
-            f.sel, f.mode = nil, nil
+            f.sel, f.mode, f.selBox, f.zEtat, f.zc, f.zEdit = nil, nil, nil, nil, nil, nil
             ADB.TalDessiner()
         end)
     f.Pts = Etiq(f, "", PX, -76, "GameFontNormal")
@@ -1472,6 +1911,12 @@ function ADB.TalCreer()
         ADB.TalDessiner()
     end)
     f.Aide = Etiq(f, "", PX, -124, "GameFontNormalSmall")
+    f.BtnZone = Bouton(f, "Zones (ColorBox)", PX, -98, 120, function()
+        f.zoneMode = not f.zoneMode
+        f.sel, f.mode, f.zEtat, f.zc, f.zEdit = nil, nil, nil, nil, nil
+        ADB.TalDessiner()
+    end)
+    f.BtnZone:Hide()
 
     local Ed = CreateFrame("Frame", nil, f)
     Ed:SetSize(250, 540)
@@ -1547,10 +1992,15 @@ function ADB.TalCreer()
     C.DLim = Drop("ADBTalLimDrop", A, 48, -28, 130,
         function()
             local t = {}
-            for i, l in ipairs(TAL.LIMITES) do t[i] = l[1] end
+            for i, k in ipairs(LIM_ORDRE) do t[i] = TAL.LIMITES[k][1] end
             return t
         end,
-        function() return Prop("lim", 5) end, function(i) Modif("lim", i) end)
+        function()
+            local l = Prop("lim", 5)
+            for i, k in ipairs(LIM_ORDRE) do if k == l then return i end end
+            return 6
+        end,
+        function(i) Modif("lim", LIM_ORDRE[i]) end)
     C.Reac = CreateFrame("CheckButton", "ADBTalReacCheck", A, "UICheckButtonTemplate")
     C.Reac:SetPoint("TOPLEFT", -4, -56)
     _G["ADBTalReacCheckText"]:SetText("Réaction")
@@ -1633,6 +2083,64 @@ function ADB.TalCreer()
     end)
     Bouton(C, "Supprimer", 168, -490, 80, ADB.TalSupprimer)
 
+    -- Panneau ColorBox (mode zones)
+    f.boxSel = CreateFrame("Frame", nil, f.canvas, "BackdropTemplate")
+    f.boxSel:SetBackdrop({ edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 2 })
+    f.boxSel:SetBackdropBorderColor(1, 1, 1, 1)
+    f.boxSel:EnableMouse(false)
+    f.boxSel:SetFrameLevel(f.canvas:GetFrameLevel() + 5)
+    f.boxSel:Hide()
+
+    local Z = CreateFrame("Frame", nil, Ed)
+    Z:SetAllPoints()
+    Z:Hide()
+    Ed.Z = Z
+    Etiq(Z, "Zones de couleur (ColorBox)", 0, -4, "GameFontNormal")
+    Z.Info = Etiq(Z, "", 0, -26, "GameFontHighlightSmall")
+    Z.Info:SetWidth(244)
+    Z.Info:SetJustifyV("TOP")
+    Bouton(Z, "Nouvelle zone", 0, -78, 120, function()
+        f.zEtat, f.zc, f.zEdit, f.selBox = "c1", nil, nil, nil
+        ADB.TalDessiner()
+    end)
+    Z.BtnRedef = Bouton(Z, "Redéfinir", 124, -78, 120, function()
+        if f.selBox then
+            f.zEtat, f.zc, f.zEdit = "c1", nil, f.selBox
+            ADB.TalDessiner()
+        end
+    end)
+    Z.BtnSuppr = Bouton(Z, "Supprimer", 0, -104, 120, function() ADB.ColorBoxSupprimer() end)
+    Z.LC = Etiq(Z, "Couleur", 0, -144)
+    Z.Sw = CreateFrame("Button", nil, Z)
+    Z.Sw:SetSize(26, 26)
+    Z.Sw:SetPoint("TOPLEFT", 70, -138)
+    local swb = Z.Sw:CreateTexture(nil, "BACKGROUND")
+    swb:SetAllPoints()
+    swb:SetColorTexture(1, 1, 1, 1)
+    Z.SwTex = Z.Sw:CreateTexture(nil, "ARTWORK")
+    Z.SwTex:SetPoint("TOPLEFT", 2, -2)
+    Z.SwTex:SetPoint("BOTTOMRIGHT", -2, 2)
+    Z.Sw:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
+    Z.Sw:SetScript("OnClick", function() ADB.ColorBoxSelecteur() end)
+    Z.LH = Etiq(Z, "Hex", 0, -178)
+    Z.Hex = Saisie(Z, 70, -175, 80, 6)
+    Z.Hex:SetScript("OnTextChanged", function(self, user)
+        if not user then return end
+        local h = self:GetText():match("^%x%x%x%x%x%x$")
+        if h then
+            ADB.ColorBoxModifier({
+                r = tonumber(h:sub(1, 2), 16),
+                g = tonumber(h:sub(3, 4), 16),
+                b = tonumber(h:sub(5, 6), 16)
+            })
+        end
+    end)
+    Z.LA = Etiq(Z, "Opacité %", 0, -204)
+    Z.Alpha = Saisie(Z, 70, -201, 50, 3, true)
+    Z.Alpha:SetScript("OnTextChanged", function(self, user)
+        if user and tonumber(self:GetText()) then ADB.ColorBoxModifier({ a = tonumber(self:GetText()) }) end
+    end)
+
     f:SetScript("OnShow", function() ADB.TalDessiner() end)
 end
 
@@ -1655,10 +2163,10 @@ end
 
 function ADB.InitTalents()
     ADB.talAttente, ADB.talDemande, ADB.talFile = {}, {}, {}
-    ADB.talPlan, ADB.talNoeudsPlan = {}, {}
+    ADB.talPlan, ADB.talNoeudsPlan, ADB.talBoxPlan = {}, {}, {}
     ADB.TalCreerBarre()
 end
 
 hooksecurefunc(ADB, "RafraichirInv", function()
-    if ADB.talFrame and ADB.talFrame:IsShown() then ADB.TalDessiner() end
+    if ADB.db and ADB.talAttente then ADB.TalRafraichir() end
 end)

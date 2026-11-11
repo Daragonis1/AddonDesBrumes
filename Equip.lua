@@ -21,6 +21,7 @@ end
 
 -- Résolution d'un ID (classe ou équipement) : utilisé par TalTickCD / TalResetTours
 function ADB.TalNoeudDepuisId(a, id)
+    if id and id >= ADB.TAL.XOFF then return ADB.TalNoeudExtraId(id) end
     if id and id >= OFF then return ADB.TalNoeudEquip(id) end
     return a and id and a.noeuds[id] or nil
 end
@@ -55,7 +56,7 @@ end
 -- Résolution par ID (barre, validation MJ, liens de chat)
 local oProp = ADB.TalNoeudPropre
 ADB.TalNoeudPropre = function(id)
-    if type(id) == "number" and id >= OFF then return ADB.TalNoeudEquip(id) end
+    if type(id) == "number" and id >= OFF and id < ADB.TAL.XOFF then return ADB.TalNoeudEquip(id) end
     return oProp(id)
 end
 

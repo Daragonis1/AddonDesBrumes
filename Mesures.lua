@@ -18,8 +18,8 @@ local ITEMS = {
 }
 
 local function Pos(u)
-    local y, x = UnitPosition(u)
-    if x then return x, y end
+    local y, x, _, inst = UnitPosition(u)
+    if x and y and not (x == 0 and y == 0) then return x, y, inst end
 end
 
 local function Estimer(unit)
@@ -39,17 +39,17 @@ end
 function ADB.Distance(unit)
     if not UnitExists(unit) then return nil end
     if UnitIsUnit(unit, "player") then return 0 end
-    local ax, ay = Pos("player")
-    local bx, by = Pos(unit)
-    if ax and bx then return sqrt((ax - bx) ^ 2 + (ay - by) ^ 2) end
-    return Estimer(unit)
+    local ax, ay, ai = Pos("player")
+    local bx, by, bi = Pos(unit)
+    if ax and bx and ai == bi then return sqrt((ax - bx) ^ 2 + (ay - by) ^ 2) end
+    return Estimer(unit), true
 end
 
 -- Distance entre deux unites (exacte si coordonnees connues, sinon approximation par anneau)
 function ADB.DistEntre(a, b)
-    local ax, ay = Pos(a)
-    local bx, by = Pos(b)
-    if ax and bx then return sqrt((ax - bx) ^ 2 + (ay - by) ^ 2) end
+    local ax, ay, ai = Pos(a)
+    local bx, by, bi = Pos(b)
+    if ax and bx and ai == bi then return sqrt((ax - bx) ^ 2 + (ay - by) ^ 2) end
     local da, db = ADB.Distance(a), ADB.Distance(b)
     if da and db then return abs(da - db) end
 end
@@ -188,6 +188,7 @@ end
 function ADB.MesuresPhase(ph)
     if ph == "PLAYER_TURN" then
         mv = { m = 0 }
+        mv.x0, mv.y0 = Pos("player")
         LIMITE_MOUV = 15
     elseif ph == "IDLE" then
         mv = nil
@@ -210,19 +211,17 @@ tk:SetScript("OnUpdate", function(_, el)
             t.Dist = t:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
             t.Dist:SetPoint("TOPLEFT", t, "BOTTOMLEFT", 6, -3)
         end
-        local d = UnitExists("target") and ADB.Distance("target")
-        t.Dist:SetText(d and format("Distance : %d m", floor(d + 0.5)) or "")
+        local d, est
+        if UnitExists("target") then d, est = ADB.Distance("target") end
+        t.Dist:SetText(d and format(est and "Distance : ~%d m" or "Distance : %d m", floor(d + 0.5)) or "")
     end
 
     if mv and ADB.phase == "PLAYER_TURN" and not ADB.EstMJ() then
         if not ADB.tourPasse then
             local x, y = Pos("player")
             if x then
-                if mv.x then
-                    local d = sqrt((x - mv.x) ^ 2 + (y - mv.y) ^ 2)
-                    if d < 50 then mv.m = mv.m + d end
-                end
-                mv.x, mv.y = x, y
+                if not mv.x0 then mv.x0, mv.y0 = x, y end
+                mv.m = sqrt((x - mv.x0) ^ 2 + (y - mv.y0) ^ 2)
             end
             if mv.m >= LIMITE_MOUV and not mv.info then
                 mv.info = true
