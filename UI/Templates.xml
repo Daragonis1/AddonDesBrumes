@@ -2,111 +2,83 @@
   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
   xsi:schemaLocation="http://www.blizzard.com/wow/ui/ ..\FrameXML\UI.xsd">
 
-  <!-- TEMPLATE : barre cliquable (PV / PM) -->
-  <StatusBar name="ADBBarTemplate" virtual="true" enableMouse="true"
-    minValue="0" maxValue="1" defaultValue="0">
+  <!-- Clickable bar (HP / MP) -->
+  <StatusBar name="ADBBarTemplate" virtual="true" enableMouse="true" minValue="0" maxValue="1" defaultValue="0">
     <Size x="150" y="14" />
     <BarTexture file="Interface\TargetingFrame\UI-StatusBar" />
     <Layers>
       <Layer level="BACKGROUND">
-        <Texture setAllPoints="true">
-          <Color r="0" g="0" b="0" a="0.6" />
-        </Texture>
+        <Texture setAllPoints="true"><Color r="0" g="0" b="0" a="0.6" /></Texture>
       </Layer>
       <Layer level="OVERLAY">
         <FontString parentKey="Text" inherits="GameFontHighlightSmall">
-          <Anchors>
-            <Anchor point="CENTER" />
-          </Anchors>
+          <Anchors><Anchor point="CENTER" /></Anchors>
         </FontString>
       </Layer>
     </Layers>
     <Scripts>
-      <OnMouseUp>ADB.OnBarClick(self, button)</OnMouseUp>
-      <OnEnter>ADB.BarreInfobulle(self)</OnEnter>
+      <OnMouseUp>ADB.UnitFrames.OnBarClick(self, button)</OnMouseUp>
+      <OnEnter>ADB.UnitFrames.ShowBarTooltip(self)</OnEnter>
       <OnLeave>GameTooltip:Hide()</OnLeave>
     </Scripts>
   </StatusBar>
 
-  <!-- TEMPLATE : portrait miniature d'un membre du groupe -->
-  <Button name="ADBMemberTemplate" inherits="SecureUnitButtonTemplate,BackdropTemplate"
-    virtual="true">
+  <!-- Group member frame -->
+  <Button name="ADBMemberTemplate" inherits="SecureUnitButtonTemplate,BackdropTemplate" virtual="true">
     <Size x="120" y="44" />
     <Layers>
       <Layer level="ARTWORK">
         <FontString parentKey="NameText" inherits="GameFontNormalSmall" justifyH="LEFT">
           <Size x="72" y="11" />
-          <Anchors>
-            <Anchor point="TOPLEFT" x="44" y="-4" />
-          </Anchors>
+          <Anchors><Anchor point="TOPLEFT" x="44" y="-4" /></Anchors>
         </FontString>
       </Layer>
     </Layers>
     <Frames>
-      <PlayerModel parentKey="Model">
-        <Size x="36" y="36" />
-        <Anchors>
-          <Anchor point="TOPLEFT" x="4" y="-4" />
-        </Anchors>
-      </PlayerModel>
       <StatusBar parentKey="HP" inherits="ADBBarTemplate">
         <Size x="72" y="12" />
-        <Anchors>
-          <Anchor point="TOPLEFT" x="44" y="-16" />
-        </Anchors>
+        <Anchors><Anchor point="TOPLEFT" x="44" y="-16" /></Anchors>
       </StatusBar>
       <StatusBar parentKey="MP" inherits="ADBBarTemplate">
         <Size x="72" y="12" />
-        <Anchors>
-          <Anchor point="TOPLEFT" x="44" y="-29" />
-        </Anchors>
+        <Anchors><Anchor point="TOPLEFT" x="44" y="-29" /></Anchors>
       </StatusBar>
     </Frames>
     <Scripts>
-      <OnLoad inherit="prepend">ADB.Member_OnLoad(self)</OnLoad>
+      <OnLoad inherit="prepend">ADB.UnitFrames.OnMemberLoad(self)</OnLoad>
     </Scripts>
   </Button>
 
-  <!-- TEMPLATE : cadre d'un PNJ -->
+  <!-- NPC frame -->
   <Frame name="ADBNpcTemplate" inherits="BackdropTemplate" virtual="true">
     <Size x="120" y="44" />
     <Layers>
       <Layer level="ARTWORK">
         <Texture parentKey="Icon" file="Interface\Icons\INV_Misc_QuestionMark">
           <Size x="36" y="36" />
-          <Anchors>
-            <Anchor point="TOPLEFT" x="4" y="-4" />
-          </Anchors>
+          <Anchors><Anchor point="TOPLEFT" x="4" y="-4" /></Anchors>
           <TexCoords left="0.07" right="0.93" top="0.07" bottom="0.93" />
         </Texture>
         <FontString parentKey="NameText" inherits="GameFontNormalSmall" justifyH="LEFT">
           <Size x="58" y="11" />
-          <Anchors>
-            <Anchor point="TOPLEFT" x="44" y="-4" />
-          </Anchors>
+          <Anchors><Anchor point="TOPLEFT" x="44" y="-4" /></Anchors>
         </FontString>
       </Layer>
     </Layers>
     <Frames>
       <StatusBar parentKey="HP" inherits="ADBBarTemplate">
         <Size x="72" y="12" />
-        <Anchors>
-          <Anchor point="TOPLEFT" x="44" y="-16" />
-        </Anchors>
+        <Anchors><Anchor point="TOPLEFT" x="44" y="-16" /></Anchors>
       </StatusBar>
       <StatusBar parentKey="MP" inherits="ADBBarTemplate">
         <Size x="72" y="12" />
-        <Anchors>
-          <Anchor point="TOPLEFT" x="44" y="-29" />
-        </Anchors>
+        <Anchors><Anchor point="TOPLEFT" x="44" y="-29" /></Anchors>
       </StatusBar>
       <Button parentKey="Delete" inherits="UIPanelCloseButton" hidden="true">
         <Size x="20" y="20" />
-        <Anchors>
-          <Anchor point="TOPRIGHT" x="3" y="3" />
-        </Anchors>
+        <Anchors><Anchor point="TOPRIGHT" x="3" y="3" /></Anchors>
         <Scripts>
-          <OnClick>ADB.DemanderSuppressionPNJ(self:GetParent())</OnClick>
+          <OnClick>ADB.UnitFrames.RequestDeleteNpc(self:GetParent())</OnClick>
           <OnEnter>
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
             GameTooltip:AddLine("Supprimer le PNJ", 1, 1, 1)
@@ -117,21 +89,20 @@
       </Button>
     </Frames>
     <Scripts>
-      <OnLoad inherit="prepend">ADB.Npc_OnLoad(self)</OnLoad>
+      <OnLoad inherit="prepend">ADB.UnitFrames.OnNpcLoad(self)</OnLoad>
     </Scripts>
   </Frame>
 
-  <!-- FRAME D'ÉVÉNEMENTS PRINCIPALE -->
+  <!-- Main event frame -->
   <Frame name="ADBEventFrame" parent="UIParent">
     <Scripts>
-      <OnLoad>ADB.OnLoad(self)</OnLoad>
-      <OnEvent>ADB.OnEvent(self, event, ...)</OnEvent>
+      <OnLoad>ADB.Events.OnLoad(self)</OnLoad>
+      <OnEvent>ADB.Events.OnEvent(self, event, ...)</OnEvent>
     </Scripts>
   </Frame>
 
-  <!-- BOUTON DE LA MINIMAP -->
-  <Button name="ADBMinimapButton" parent="Minimap" frameStrata="MEDIUM" frameLevel="8"
-    toplevel="true" enableMouse="true">
+  <!-- Minimap button -->
+  <Button name="ADBMinimapButton" parent="Minimap" frameStrata="MEDIUM" frameLevel="8" toplevel="true" enableMouse="true">
     <Size x="31" y="31" />
     <Anchors>
       <Anchor point="CENTER" relativeTo="Minimap" relativePoint="CENTER" x="-56" y="-56" />
@@ -140,26 +111,20 @@
       <Layer level="BACKGROUND">
         <Texture file="Interface\Minimap\UI-Minimap-Background">
           <Size x="20" y="20" />
-          <Anchors>
-            <Anchor point="TOPLEFT" x="7" y="-5" />
-          </Anchors>
+          <Anchors><Anchor point="TOPLEFT" x="7" y="-5" /></Anchors>
         </Texture>
       </Layer>
       <Layer level="ARTWORK">
         <Texture parentKey="Icon" file="Interface\Icons\INV_Misc_Eye_01">
           <Size x="20" y="20" />
-          <Anchors>
-            <Anchor point="TOPLEFT" x="7" y="-5" />
-          </Anchors>
+          <Anchors><Anchor point="TOPLEFT" x="7" y="-5" /></Anchors>
           <TexCoords left="0.07" right="0.93" top="0.07" bottom="0.93" />
         </Texture>
       </Layer>
       <Layer level="OVERLAY">
         <Texture file="Interface\Minimap\MiniMap-TrackingBorder">
           <Size x="53" y="53" />
-          <Anchors>
-            <Anchor point="TOPLEFT" />
-          </Anchors>
+          <Anchors><Anchor point="TOPLEFT" /></Anchors>
         </Texture>
       </Layer>
     </Layers>
@@ -170,8 +135,8 @@
         self:RegisterForDrag("LeftButton")
         self.Icon:SetVertexColor(0.85, 0.6, 1)
       </OnLoad>
-      <OnClick>ADB.BasculerConfig()</OnClick>
-      <OnDragStart>self:SetScript("OnUpdate", ADB.BoutonGlisse)</OnDragStart>
+      <OnClick>ADB.ConfigWindow.Toggle()</OnClick>
+      <OnDragStart>self:SetScript("OnUpdate", ADB.MinimapButtonDrag)</OnDragStart>
       <OnDragStop>self:SetScript("OnUpdate", nil)</OnDragStop>
       <OnEnter>
         GameTooltip:SetOwner(self, "ANCHOR_LEFT")
@@ -184,10 +149,9 @@
     </Scripts>
   </Button>
 
-  <!-- PORTRAIT JOUEUR -->
-  <Button name="ADBPlayerFrame" parent="UIParent"
-    inherits="SecureUnitButtonTemplate,BackdropTemplate" frameStrata="LOW"
-    enableMouse="true" hidden="true">
+  <!-- Player frame -->
+  <Button name="ADBPlayerFrame" parent="UIParent" inherits="SecureUnitButtonTemplate,BackdropTemplate"
+    frameStrata="LOW" enableMouse="true" hidden="true">
     <Size x="232" y="76" />
     <Anchors>
       <Anchor point="TOPLEFT" relativeTo="UIParent" relativePoint="TOPLEFT" x="5" y="-10" />
@@ -196,50 +160,34 @@
       <Layer level="ARTWORK">
         <FontString parentKey="NameText" inherits="GameFontNormal" justifyH="LEFT">
           <Size x="150" y="14" />
-          <Anchors>
-            <Anchor point="TOPLEFT" x="70" y="-8" />
-          </Anchors>
+          <Anchors><Anchor point="TOPLEFT" x="70" y="-8" /></Anchors>
         </FontString>
       </Layer>
     </Layers>
     <Frames>
-      <PlayerModel parentKey="Model">
-        <Size x="56" y="56" />
-        <Anchors>
-          <Anchor point="TOPLEFT" x="8" y="-10" />
-        </Anchors>
-      </PlayerModel>
       <StatusBar parentKey="HP" inherits="ADBBarTemplate">
         <Size x="150" y="16" />
-        <Anchors>
-          <Anchor point="TOPLEFT" x="70" y="-26" />
-        </Anchors>
-        <Scripts>
-          <OnLoad inherit="prepend">self.kind = "pv"</OnLoad>
-        </Scripts>
+        <Anchors><Anchor point="TOPLEFT" x="70" y="-26" /></Anchors>
+        <Scripts><OnLoad inherit="prepend">self.kind = "hp"</OnLoad></Scripts>
       </StatusBar>
       <StatusBar parentKey="MP" inherits="ADBBarTemplate">
         <Size x="150" y="14" />
-        <Anchors>
-          <Anchor point="TOPLEFT" x="70" y="-46" />
-        </Anchors>
-        <Scripts>
-          <OnLoad inherit="prepend">self.kind = "pm"</OnLoad>
-        </Scripts>
+        <Anchors><Anchor point="TOPLEFT" x="70" y="-46" /></Anchors>
+        <Scripts><OnLoad inherit="prepend">self.kind = "mp"</OnLoad></Scripts>
       </StatusBar>
     </Frames>
     <Scripts>
       <OnLoad inherit="prepend">
-        ADB.InitCadre(self)
+        ADB.UnitFrames.InitFrame(self)
         self:RegisterForClicks("AnyUp")
         self:SetAttribute("unit", "player")
         self:SetAttribute("type1", "target")
       </OnLoad>
-      <OnMouseUp>ADB.OnPortraitMouseUp(self, button)</OnMouseUp>
+      <OnMouseUp>ADB.UnitFrames.OnPortraitMouseUp(self, button)</OnMouseUp>
     </Scripts>
   </Button>
 
-  <!-- PORTRAIT CIBLE -->
+  <!-- Target frame -->
   <Frame name="ADBTargetFrame" parent="UIParent" inherits="BackdropTemplate" frameStrata="LOW"
     enableMouse="true" hidden="true">
     <Size x="232" y="76" />
@@ -250,55 +198,34 @@
       <Layer level="ARTWORK">
         <FontString parentKey="NameText" inherits="GameFontNormal" justifyH="LEFT">
           <Size x="150" y="14" />
-          <Anchors>
-            <Anchor point="TOPLEFT" x="70" y="-8" />
-          </Anchors>
+          <Anchors><Anchor point="TOPLEFT" x="70" y="-8" /></Anchors>
         </FontString>
       </Layer>
     </Layers>
     <Frames>
-      <PlayerModel parentKey="Model">
-        <Size x="56" y="56" />
-        <Anchors>
-          <Anchor point="TOPLEFT" x="8" y="-10" />
-        </Anchors>
-      </PlayerModel>
       <StatusBar parentKey="HP" inherits="ADBBarTemplate">
         <Size x="150" y="16" />
-        <Anchors>
-          <Anchor point="TOPLEFT" x="70" y="-26" />
-        </Anchors>
-        <Scripts>
-          <OnLoad inherit="prepend">self.kind = "pv"</OnLoad>
-        </Scripts>
+        <Anchors><Anchor point="TOPLEFT" x="70" y="-26" /></Anchors>
+        <Scripts><OnLoad inherit="prepend">self.kind = "hp"</OnLoad></Scripts>
       </StatusBar>
       <StatusBar parentKey="MP" inherits="ADBBarTemplate">
         <Size x="150" y="14" />
-        <Anchors>
-          <Anchor point="TOPLEFT" x="70" y="-46" />
-        </Anchors>
-        <Scripts>
-          <OnLoad inherit="prepend">self.kind = "pm"</OnLoad>
-        </Scripts>
+        <Anchors><Anchor point="TOPLEFT" x="70" y="-46" /></Anchors>
+        <Scripts><OnLoad inherit="prepend">self.kind = "mp"</OnLoad></Scripts>
       </StatusBar>
-      <Button parentKey="FicheButton" inherits="UIPanelButtonTemplate" text="Voir Fiche"
-        hidden="true">
+      <Button parentKey="SheetButton" inherits="UIPanelButtonTemplate" text="Voir Fiche" hidden="true">
         <Size x="100" y="20" />
-        <Anchors>
-          <Anchor point="TOPRIGHT" relativePoint="BOTTOMRIGHT" x="0" y="-2" />
-        </Anchors>
-        <Scripts>
-          <OnClick>ADB.VoirFicheCible()</OnClick>
-        </Scripts>
+        <Anchors><Anchor point="TOPRIGHT" relativePoint="BOTTOMRIGHT" x="0" y="-2" /></Anchors>
+        <Scripts><OnClick>ADB.ConfigWindow.ViewTargetSheet()</OnClick></Scripts>
       </Button>
     </Frames>
     <Scripts>
-      <OnLoad inherit="prepend">ADB.InitCadre(self)</OnLoad>
-      <OnMouseUp>ADB.OnPortraitMouseUp(self, button)</OnMouseUp>
+      <OnLoad inherit="prepend">ADB.UnitFrames.InitFrame(self)</OnLoad>
+      <OnMouseUp>ADB.UnitFrames.OnPortraitMouseUp(self, button)</OnMouseUp>
     </Scripts>
   </Frame>
 
-  <!-- CONTENEUR DES PORTRAITS DE GROUPE -->
+  <!-- Group portraits container -->
   <Frame name="ADBGroupFrame" parent="UIParent" frameStrata="LOW" hidden="true">
     <Size x="130" y="250" />
     <Anchors>
@@ -306,7 +233,7 @@
     </Anchors>
   </Frame>
 
-  <!-- CONTENEUR DES PNJ + boutons MJ (+PNJ / Repos / XP) -->
+  <!-- NPC container + GM buttons (+NPC / Rest / XP) -->
   <Frame name="ADBNpcFrame" parent="UIParent" frameStrata="LOW">
     <Size x="130" y="24" />
     <Anchors>
@@ -315,11 +242,9 @@
     <Frames>
       <Button parentKey="CreateButton" inherits="UIPanelButtonTemplate" text="+PNJ" hidden="true">
         <Size x="46" y="20" />
-        <Anchors>
-          <Anchor point="TOPLEFT" x="0" y="0" />
-        </Anchors>
+        <Anchors><Anchor point="TOPLEFT" x="0" y="0" /></Anchors>
         <Scripts>
-          <OnClick>ADB.OuvrirCreationPNJ()</OnClick>
+          <OnClick>ADB.GmTools.OpenNpcCreate()</OnClick>
           <OnEnter>
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
             GameTooltip:AddLine("Créer un PNJ (MJ)", 1, 1, 1)
@@ -330,11 +255,9 @@
       </Button>
       <Button parentKey="RestButton" inherits="UIPanelButtonTemplate" text="Repos" hidden="true">
         <Size x="54" y="20" />
-        <Anchors>
-          <Anchor point="TOPLEFT" x="48" y="0" />
-        </Anchors>
+        <Anchors><Anchor point="TOPLEFT" x="48" y="0" /></Anchors>
         <Scripts>
-          <OnClick>ADB.OuvrirRepos()</OnClick>
+          <OnClick>ADB.GmTools.OpenRest()</OnClick>
           <OnEnter>
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
             GameTooltip:AddLine("Lancer un repos (MJ)", 1, 1, 1)
@@ -345,11 +268,9 @@
       </Button>
       <Button parentKey="XPButton" inherits="UIPanelButtonTemplate" text="XP" hidden="true">
         <Size x="30" y="20" />
-        <Anchors>
-          <Anchor point="TOPLEFT" x="104" y="0" />
-        </Anchors>
+        <Anchors><Anchor point="TOPLEFT" x="104" y="0" /></Anchors>
         <Scripts>
-          <OnClick>ADB.OuvrirMJ()</OnClick>
+          <OnClick>ADB.GmTools.OpenXp()</OnClick>
           <OnEnter>
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
             GameTooltip:AddLine("Distribuer de l'expérience (MJ)", 1, 1, 1)
@@ -361,131 +282,82 @@
     </Frames>
   </Frame>
 
-  <!-- FENÊTRE DE CONFIGURATION (Nom RP / Race / Classe) -->
+  <!-- Own character window (RP name / race / class) -->
   <Frame name="ADBConfigFrame" parent="UIParent" inherits="BasicFrameTemplateWithInset"
-    frameStrata="DIALOG" toplevel="true" movable="true" clampedToScreen="true"
-    enableMouse="true" hidden="true">
+    frameStrata="DIALOG" toplevel="true" movable="true" clampedToScreen="true" enableMouse="true" hidden="true">
     <Size x="330" y="570" />
-    <Anchors>
-      <Anchor point="CENTER" x="0" y="20" />
-    </Anchors>
+    <Anchors><Anchor point="CENTER" x="0" y="20" /></Anchors>
     <Layers>
       <Layer level="ARTWORK">
-        <FontString parentKey="NomRPLabel" inherits="GameFontHighlight" justifyH="LEFT"
-          text="Nom RP">
+        <FontString parentKey="RpNameLabel" inherits="GameFontHighlight" justifyH="LEFT" text="Nom RP">
           <Size x="110" y="20" />
-          <Anchors>
-            <Anchor point="TOPLEFT" x="22" y="-38" />
-          </Anchors>
+          <Anchors><Anchor point="TOPLEFT" x="22" y="-38" /></Anchors>
         </FontString>
         <FontString parentKey="RaceLabel" inherits="GameFontHighlight" justifyH="LEFT" text="Race">
           <Size x="110" y="20" />
-          <Anchors>
-            <Anchor point="TOPLEFT" x="22" y="-72" />
-          </Anchors>
+          <Anchors><Anchor point="TOPLEFT" x="22" y="-72" /></Anchors>
         </FontString>
-        <FontString parentKey="ClasseLabel" inherits="GameFontHighlight" justifyH="LEFT"
-          text="Classe">
+        <FontString parentKey="ClassLabel" inherits="GameFontHighlight" justifyH="LEFT" text="Classe">
           <Size x="110" y="20" />
-          <Anchors>
-            <Anchor point="TOPLEFT" x="22" y="-104" />
-          </Anchors>
+          <Anchors><Anchor point="TOPLEFT" x="22" y="-104" /></Anchors>
         </FontString>
-        <FontString parentKey="Derived" inherits="GameFontHighlight" justifyH="LEFT" justifyV="TOP"
-          spacing="4">
+        <FontString parentKey="Derived" inherits="GameFontHighlight" justifyH="LEFT" justifyV="TOP" spacing="4">
           <Size x="295" y="240" />
-          <Anchors>
-            <Anchor point="TOPLEFT" x="18" y="-140" />
-          </Anchors>
+          <Anchors><Anchor point="TOPLEFT" x="18" y="-140" /></Anchors>
         </FontString>
       </Layer>
     </Layers>
     <Frames>
-      <EditBox parentKey="NomRPEdit" inherits="InputBoxTemplate" autoFocus="false" letters="30">
+      <EditBox parentKey="RpNameEdit" inherits="InputBoxTemplate" autoFocus="false" letters="30">
         <Size x="160" y="22" />
-        <Anchors>
-          <Anchor point="TOPLEFT" x="150" y="-37" />
-        </Anchors>
+        <Anchors><Anchor point="TOPLEFT" x="150" y="-37" /></Anchors>
         <FontString inherits="ChatFontNormal" />
         <Scripts>
-          <OnEnterPressed>ADB.OnNomRPEdit(self); self:ClearFocus()</OnEnterPressed>
-          <OnEscapePressed>ADB.OnNomRPEscape(self)</OnEscapePressed>
-          <OnEditFocusLost>ADB.OnNomRPEdit(self)</OnEditFocusLost>
+          <OnEnterPressed>ADB.ConfigWindow.OnRpNameEdit(self); self:ClearFocus()</OnEnterPressed>
+          <OnEscapePressed>ADB.ConfigWindow.OnRpNameEscape(self)</OnEscapePressed>
+          <OnEditFocusLost>ADB.ConfigWindow.OnRpNameEdit(self)</OnEditFocusLost>
         </Scripts>
       </EditBox>
       <Frame name="ADBRaceDrop" parentKey="RaceDrop" inherits="UIDropDownMenuTemplate">
-        <Anchors>
-          <Anchor point="TOPLEFT" x="124" y="-67" />
-        </Anchors>
+        <Anchors><Anchor point="TOPLEFT" x="124" y="-67" /></Anchors>
       </Frame>
-      <Frame name="ADBClasseDrop" parentKey="ClasseDrop" inherits="UIDropDownMenuTemplate">
-        <Anchors>
-          <Anchor point="TOPLEFT" x="124" y="-99" />
-        </Anchors>
+      <Frame name="ADBClasseDrop" parentKey="ClassDrop" inherits="UIDropDownMenuTemplate">
+        <Anchors><Anchor point="TOPLEFT" x="124" y="-99" /></Anchors>
       </Frame>
       <Button parentKey="TalentButton" inherits="UIPanelButtonTemplate" text="Talents">
         <Size x="200" y="24" />
-        <Anchors>
-          <Anchor point="BOTTOM" x="0" y="160" />
-        </Anchors>
-        <Scripts>
-          <OnClick>ADB.BasculerTalents()</OnClick>
-        </Scripts>
+        <Anchors><Anchor point="BOTTOM" x="0" y="160" /></Anchors>
+        <Scripts><OnClick>ADB.TalentWindow.Toggle()</OnClick></Scripts>
       </Button>
-      <Button parentKey="InvButton" inherits="UIPanelButtonTemplate" text="Inventaire">
+      <Button parentKey="InventoryButton" inherits="UIPanelButtonTemplate" text="Inventaire">
         <Size x="200" y="24" />
-        <Anchors>
-          <Anchor point="BOTTOM" x="0" y="132" />
-        </Anchors>
-        <Scripts>
-          <OnClick>ADB.BasculerInv()</OnClick>
-        </Scripts>
+        <Anchors><Anchor point="BOTTOM" x="0" y="132" /></Anchors>
+        <Scripts><OnClick>ADB.InventoryWindow.Toggle()</OnClick></Scripts>
       </Button>
       <Button parentKey="PetButton" inherits="UIPanelButtonTemplate" text="Personnage secondaire">
         <Size x="200" y="24" />
-        <Anchors>
-          <Anchor point="BOTTOM" x="0" y="104" />
-        </Anchors>
-        <Scripts>
-          <OnClick>ADB.PetBasculerMenu()</OnClick>
-        </Scripts>
+        <Anchors><Anchor point="BOTTOM" x="0" y="104" /></Anchors>
+        <Scripts><OnClick>ADB.PetUI.ToggleMenu()</OnClick></Scripts>
       </Button>
       <Button parentKey="ItemButton" inherits="UIPanelButtonTemplate" text="Créer un objet (MJ)">
         <Size x="200" y="24" />
-        <Anchors>
-          <Anchor point="BOTTOM" x="0" y="104" />
-        </Anchors>
-        <Scripts>
-          <OnClick>ADB.OuvrirCreationItem()</OnClick>
-        </Scripts>
+        <Anchors><Anchor point="BOTTOM" x="0" y="104" /></Anchors>
+        <Scripts><OnClick>ADB.ItemCreator.Open()</OnClick></Scripts>
       </Button>
-      <Button parentKey="MJButton" inherits="UIPanelButtonTemplate" text="Outils MJ (XP)">
+      <Button parentKey="GmButton" inherits="UIPanelButtonTemplate" text="Outils MJ (XP)">
         <Size x="200" y="24" />
-        <Anchors>
-          <Anchor point="BOTTOM" x="0" y="76" />
-        </Anchors>
-        <Scripts>
-          <OnClick>ADB.OuvrirMJ()</OnClick>
-        </Scripts>
+        <Anchors><Anchor point="BOTTOM" x="0" y="76" /></Anchors>
+        <Scripts><OnClick>ADB.GmTools.OpenXp()</OnClick></Scripts>
       </Button>
-      <Button parentKey="PNJButton" inherits="UIPanelButtonTemplate" text="Créer un PNJ (MJ)">
+      <Button parentKey="NpcButton" inherits="UIPanelButtonTemplate" text="Créer un PNJ (MJ)">
         <Size x="200" y="24" />
-        <Anchors>
-          <Anchor point="BOTTOM" x="0" y="48" />
-        </Anchors>
-        <Scripts>
-          <OnClick>ADB.OuvrirCreationPNJ()</OnClick>
-        </Scripts>
+        <Anchors><Anchor point="BOTTOM" x="0" y="48" /></Anchors>
+        <Scripts><OnClick>ADB.GmTools.OpenNpcCreate()</OnClick></Scripts>
       </Button>
-      <Button parentKey="FicheCibleButton" inherits="UIPanelButtonTemplate"
-        text="Fiche de la cible (MJ)">
+      <Button parentKey="TargetSheetButton" inherits="UIPanelButtonTemplate" text="Fiche de la cible (MJ)">
         <Size x="200" y="24" />
-        <Anchors>
-          <Anchor point="BOTTOM" x="0" y="20" />
-        </Anchors>
-        <Scripts>
-          <OnClick>ADB.VoirFicheCible()</OnClick>
-        </Scripts>
+        <Anchors><Anchor point="BOTTOM" x="0" y="20" /></Anchors>
+        <Scripts><OnClick>ADB.ConfigWindow.ViewTargetSheet()</OnClick></Scripts>
       </Button>
     </Frames>
     <Scripts>
@@ -495,35 +367,27 @@
       </OnLoad>
       <OnDragStart>self:StartMoving()</OnDragStart>
       <OnDragStop>self:StopMovingOrSizing()</OnDragStop>
-      <OnShow>ADB.RafraichirConfig()</OnShow>
+      <OnShow>ADB.ConfigWindow.Refresh()</OnShow>
     </Scripts>
   </Frame>
 
-  <!-- OUTILS MJ : distribution d'XP + accès au repos -->
+  <!-- GM tools: XP distribution + rest access -->
   <Frame name="ADBMJFrame" parent="UIParent" inherits="BasicFrameTemplateWithInset"
-    frameStrata="DIALOG" toplevel="true" movable="true" clampedToScreen="true"
-    enableMouse="true" hidden="true">
+    frameStrata="DIALOG" toplevel="true" movable="true" clampedToScreen="true" enableMouse="true" hidden="true">
     <Size x="300" y="170" />
-    <Anchors>
-      <Anchor point="CENTER" x="-300" y="120" />
-    </Anchors>
+    <Anchors><Anchor point="CENTER" x="-300" y="120" /></Anchors>
     <Layers>
       <Layer level="ARTWORK">
-        <FontString parentKey="XPLabel" inherits="GameFontHighlight" justifyH="LEFT"
-          text="Points d'XP">
+        <FontString parentKey="XPLabel" inherits="GameFontHighlight" justifyH="LEFT" text="Points d'XP">
           <Size x="100" y="20" />
-          <Anchors>
-            <Anchor point="TOPLEFT" x="20" y="-42" />
-          </Anchors>
+          <Anchors><Anchor point="TOPLEFT" x="20" y="-42" /></Anchors>
         </FontString>
       </Layer>
     </Layers>
     <Frames>
       <EditBox parentKey="XPEdit" inherits="InputBoxTemplate" autoFocus="false" letters="7">
         <Size x="100" y="22" />
-        <Anchors>
-          <Anchor point="TOPLEFT" x="130" y="-41" />
-        </Anchors>
+        <Anchors><Anchor point="TOPLEFT" x="130" y="-41" /></Anchors>
         <FontString inherits="ChatFontNormal" />
         <Scripts>
           <OnEnterPressed>self:ClearFocus()</OnEnterPressed>
@@ -532,30 +396,18 @@
       </EditBox>
       <Button parentKey="XPTargetButton" inherits="UIPanelButtonTemplate" text="XP à la cible">
         <Size x="125" y="24" />
-        <Anchors>
-          <Anchor point="TOPLEFT" x="20" y="-76" />
-        </Anchors>
-        <Scripts>
-          <OnClick>ADB.XPCible()</OnClick>
-        </Scripts>
+        <Anchors><Anchor point="TOPLEFT" x="20" y="-76" /></Anchors>
+        <Scripts><OnClick>ADB.GmTools.XpTarget()</OnClick></Scripts>
       </Button>
       <Button parentKey="XPGroupButton" inherits="UIPanelButtonTemplate" text="XP au groupe">
         <Size x="125" y="24" />
-        <Anchors>
-          <Anchor point="TOPRIGHT" x="-20" y="-76" />
-        </Anchors>
-        <Scripts>
-          <OnClick>ADB.XPGroupe()</OnClick>
-        </Scripts>
+        <Anchors><Anchor point="TOPRIGHT" x="-20" y="-76" /></Anchors>
+        <Scripts><OnClick>ADB.GmTools.XpGroup()</OnClick></Scripts>
       </Button>
       <Button parentKey="RestButton" inherits="UIPanelButtonTemplate" text="Repos">
         <Size x="140" y="24" />
-        <Anchors>
-          <Anchor point="BOTTOM" x="0" y="16" />
-        </Anchors>
-        <Scripts>
-          <OnClick>ADB.OuvrirRepos()</OnClick>
-        </Scripts>
+        <Anchors><Anchor point="BOTTOM" x="0" y="16" /></Anchors>
+        <Scripts><OnClick>ADB.GmTools.OpenRest()</OnClick></Scripts>
       </Button>
     </Frames>
     <Scripts>
@@ -568,150 +420,107 @@
     </Scripts>
   </Frame>
 
-  <!-- FENÊTRE DE REPOS (MJ) -->
+  <!-- Rest window (GM) -->
   <Frame name="ADBRestFrame" parent="UIParent" inherits="BasicFrameTemplateWithInset"
-    frameStrata="DIALOG" toplevel="true" movable="true" clampedToScreen="true"
-    enableMouse="true" hidden="true">
+    frameStrata="DIALOG" toplevel="true" movable="true" clampedToScreen="true" enableMouse="true" hidden="true">
     <Size x="280" y="180" />
-    <Anchors>
-      <Anchor point="CENTER" x="-300" y="-60" />
-    </Anchors>
+    <Anchors><Anchor point="CENTER" x="-300" y="-60" /></Anchors>
     <Layers>
       <Layer level="ARTWORK">
         <FontString parentKey="Pct" inherits="GameFontHighlight" justifyH="LEFT">
           <Size x="250" y="20" />
-          <Anchors>
-            <Anchor point="TOPLEFT" x="18" y="-100" />
-          </Anchors>
+          <Anchors><Anchor point="TOPLEFT" x="18" y="-100" /></Anchors>
         </FontString>
       </Layer>
     </Layers>
     <Frames>
       <CheckButton name="ADBRestSecurise" parentKey="Securise" inherits="UICheckButtonTemplate">
-        <Anchors>
-          <Anchor point="TOPLEFT" x="18" y="-34" />
-        </Anchors>
-        <Scripts>
-          <OnClick inherit="append">ADB.RafraichirRepos()</OnClick>
-        </Scripts>
+        <Anchors><Anchor point="TOPLEFT" x="18" y="-34" /></Anchors>
+        <Scripts><OnClick inherit="append">ADB.GmTools.RefreshRest()</OnClick></Scripts>
       </CheckButton>
-      <CheckButton name="ADBRestConfortable" parentKey="Confortable"
-        inherits="UICheckButtonTemplate">
-        <Anchors>
-          <Anchor point="TOPLEFT" x="18" y="-64" />
-        </Anchors>
-        <Scripts>
-          <OnClick inherit="append">ADB.RafraichirRepos()</OnClick>
-        </Scripts>
+      <CheckButton name="ADBRestConfortable" parentKey="Confortable" inherits="UICheckButtonTemplate">
+        <Anchors><Anchor point="TOPLEFT" x="18" y="-64" /></Anchors>
+        <Scripts><OnClick inherit="append">ADB.GmTools.RefreshRest()</OnClick></Scripts>
       </CheckButton>
       <Button parentKey="LaunchButton" inherits="UIPanelButtonTemplate" text="Lancer le repos">
         <Size x="160" y="24" />
-        <Anchors>
-          <Anchor point="BOTTOM" x="0" y="16" />
-        </Anchors>
-        <Scripts>
-          <OnClick>ADB.LancerRepos()</OnClick>
-        </Scripts>
+        <Anchors><Anchor point="BOTTOM" x="0" y="16" /></Anchors>
+        <Scripts><OnClick>ADB.GmTools.LaunchRest()</OnClick></Scripts>
       </Button>
     </Frames>
     <Scripts>
       <OnLoad inherit="prepend">
         self:RegisterForDrag("LeftButton")
         if self.TitleText then self.TitleText:SetText("Repos") end
-        ADB.InitRepos(self)
+        ADB.GmTools.InitRest()
       </OnLoad>
       <OnDragStart>self:StartMoving()</OnDragStart>
       <OnDragStop>self:StopMovingOrSizing()</OnDragStop>
-      <OnShow>ADB.RafraichirRepos()</OnShow>
+      <OnShow>ADB.GmTools.RefreshRest()</OnShow>
     </Scripts>
   </Frame>
 
-  <!-- FENÊTRE DE CRÉATION D'UN PNJ (MJ) -->
+  <!-- NPC creation window (GM) -->
   <Frame name="ADBNpcCreateFrame" parent="UIParent" inherits="BasicFrameTemplateWithInset"
-    frameStrata="DIALOG" toplevel="true" movable="true" clampedToScreen="true"
-    enableMouse="true" hidden="true">
+    frameStrata="DIALOG" toplevel="true" movable="true" clampedToScreen="true" enableMouse="true" hidden="true">
     <Size x="300" y="210" />
-    <Anchors>
-      <Anchor point="CENTER" x="0" y="120" />
-    </Anchors>
+    <Anchors><Anchor point="CENTER" x="0" y="120" /></Anchors>
     <Layers>
       <Layer level="ARTWORK">
         <FontString parentKey="NameLabel" inherits="GameFontHighlight" justifyH="LEFT" text="Nom">
           <Size x="70" y="20" />
-          <Anchors>
-            <Anchor point="TOPLEFT" x="20" y="-42" />
-          </Anchors>
+          <Anchors><Anchor point="TOPLEFT" x="20" y="-42" /></Anchors>
         </FontString>
-        <FontString parentKey="PvLabel" inherits="GameFontHighlight" justifyH="LEFT" text="PV max">
+        <FontString parentKey="HpLabel" inherits="GameFontHighlight" justifyH="LEFT" text="PV max">
           <Size x="70" y="20" />
-          <Anchors>
-            <Anchor point="TOPLEFT" x="20" y="-76" />
-          </Anchors>
+          <Anchors><Anchor point="TOPLEFT" x="20" y="-76" /></Anchors>
         </FontString>
-        <FontString parentKey="PmLabel" inherits="GameFontHighlight" justifyH="LEFT" text="PM max">
+        <FontString parentKey="MpLabel" inherits="GameFontHighlight" justifyH="LEFT" text="PM max">
           <Size x="70" y="20" />
-          <Anchors>
-            <Anchor point="TOPLEFT" x="20" y="-110" />
-          </Anchors>
+          <Anchors><Anchor point="TOPLEFT" x="20" y="-110" /></Anchors>
         </FontString>
       </Layer>
     </Layers>
     <Frames>
       <EditBox parentKey="NameEdit" inherits="InputBoxTemplate" autoFocus="false" letters="30">
         <Size x="170" y="22" />
-        <Anchors>
-          <Anchor point="TOPLEFT" x="100" y="-41" />
-        </Anchors>
+        <Anchors><Anchor point="TOPLEFT" x="100" y="-41" /></Anchors>
         <FontString inherits="ChatFontNormal" />
         <Scripts>
-          <OnEnterPressed>ADB.ValiderCreationPNJ()</OnEnterPressed>
+          <OnEnterPressed>ADB.GmTools.ValidateNpcCreate()</OnEnterPressed>
           <OnEscapePressed>self:ClearFocus()</OnEscapePressed>
-          <OnTabPressed>self:GetParent().PvEdit:SetFocus()</OnTabPressed>
+          <OnTabPressed>self:GetParent().HpEdit:SetFocus()</OnTabPressed>
         </Scripts>
       </EditBox>
-      <EditBox parentKey="PvEdit" inherits="InputBoxTemplate" autoFocus="false" numeric="true"
-        letters="4">
+      <EditBox parentKey="HpEdit" inherits="InputBoxTemplate" autoFocus="false" numeric="true" letters="4">
         <Size x="70" y="22" />
-        <Anchors>
-          <Anchor point="TOPLEFT" x="100" y="-75" />
-        </Anchors>
+        <Anchors><Anchor point="TOPLEFT" x="100" y="-75" /></Anchors>
         <FontString inherits="ChatFontNormal" />
         <Scripts>
-          <OnEnterPressed>ADB.ValiderCreationPNJ()</OnEnterPressed>
+          <OnEnterPressed>ADB.GmTools.ValidateNpcCreate()</OnEnterPressed>
           <OnEscapePressed>self:ClearFocus()</OnEscapePressed>
-          <OnTabPressed>self:GetParent().PmEdit:SetFocus()</OnTabPressed>
+          <OnTabPressed>self:GetParent().MpEdit:SetFocus()</OnTabPressed>
         </Scripts>
       </EditBox>
-      <EditBox parentKey="PmEdit" inherits="InputBoxTemplate" autoFocus="false" numeric="true"
-        letters="4">
+      <EditBox parentKey="MpEdit" inherits="InputBoxTemplate" autoFocus="false" numeric="true" letters="4">
         <Size x="70" y="22" />
-        <Anchors>
-          <Anchor point="TOPLEFT" x="100" y="-109" />
-        </Anchors>
+        <Anchors><Anchor point="TOPLEFT" x="100" y="-109" /></Anchors>
         <FontString inherits="ChatFontNormal" />
         <Scripts>
-          <OnEnterPressed>ADB.ValiderCreationPNJ()</OnEnterPressed>
+          <OnEnterPressed>ADB.GmTools.ValidateNpcCreate()</OnEnterPressed>
           <OnEscapePressed>self:ClearFocus()</OnEscapePressed>
           <OnTabPressed>self:GetParent().NameEdit:SetFocus()</OnTabPressed>
         </Scripts>
       </EditBox>
       <Button parentKey="CreateButton" inherits="UIPanelButtonTemplate" text="Créer">
         <Size x="110" y="24" />
-        <Anchors>
-          <Anchor point="BOTTOMLEFT" x="22" y="16" />
-        </Anchors>
-        <Scripts>
-          <OnClick>ADB.ValiderCreationPNJ()</OnClick>
-        </Scripts>
+        <Anchors><Anchor point="BOTTOMLEFT" x="22" y="16" /></Anchors>
+        <Scripts><OnClick>ADB.GmTools.ValidateNpcCreate()</OnClick></Scripts>
       </Button>
       <Button parentKey="CancelButton" inherits="UIPanelButtonTemplate" text="Annuler">
         <Size x="110" y="24" />
-        <Anchors>
-          <Anchor point="BOTTOMRIGHT" x="-22" y="16" />
-        </Anchors>
-        <Scripts>
-          <OnClick>self:GetParent():Hide()</OnClick>
-        </Scripts>
+        <Anchors><Anchor point="BOTTOMRIGHT" x="-22" y="16" /></Anchors>
+        <Scripts><OnClick>self:GetParent():Hide()</OnClick></Scripts>
       </Button>
     </Frames>
     <Scripts>
@@ -721,26 +530,20 @@
       </OnLoad>
       <OnDragStart>self:StartMoving()</OnDragStart>
       <OnDragStop>self:StopMovingOrSizing()</OnDragStop>
-      <OnShow>ADB.InitCreationPNJ()</OnShow>
+      <OnShow>ADB.GmTools.InitNpcCreate()</OnShow>
     </Scripts>
   </Frame>
 
-  <!-- FICHE DE PERSONNAGE EN LECTURE SEULE -->
+  <!-- Read-only character sheet -->
   <Frame name="ADBFicheFrame" parent="UIParent" inherits="BasicFrameTemplateWithInset"
-    frameStrata="DIALOG" toplevel="true" movable="true" clampedToScreen="true"
-    enableMouse="true" hidden="true">
+    frameStrata="DIALOG" toplevel="true" movable="true" clampedToScreen="true" enableMouse="true" hidden="true">
     <Size x="280" y="330" />
-    <Anchors>
-      <Anchor point="CENTER" x="260" y="40" />
-    </Anchors>
+    <Anchors><Anchor point="CENTER" x="260" y="40" /></Anchors>
     <Layers>
       <Layer level="ARTWORK">
-        <FontString parentKey="Body" inherits="GameFontHighlight" justifyH="LEFT" justifyV="TOP"
-          spacing="4">
+        <FontString parentKey="Body" inherits="GameFontHighlight" justifyH="LEFT" justifyV="TOP" spacing="4">
           <Size x="240" y="270" />
-          <Anchors>
-            <Anchor point="TOPLEFT" x="20" y="-40" />
-          </Anchors>
+          <Anchors><Anchor point="TOPLEFT" x="20" y="-40" /></Anchors>
         </FontString>
       </Layer>
     </Layers>
@@ -751,7 +554,7 @@
       </OnLoad>
       <OnDragStart>self:StartMoving()</OnDragStart>
       <OnDragStop>self:StopMovingOrSizing()</OnDragStop>
-      <OnShow>ADB.RafraichirFiche()</OnShow>
+      <OnShow>ADB.ConfigWindow.RefreshSheet()</OnShow>
     </Scripts>
   </Frame>
 

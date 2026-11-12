@@ -1,26 +1,56 @@
-# AddonDesBrumes.toc
 ## Interface: 90207
 ## Title: Addon des Brumes
 ## Notes: Pacte des Brumes - portraits JDR, fiches, PV/PM fictifs, PNJ du MJ, talents.
-## Version: 1.6
+## Version: 2.0
 ## SavedVariablesPerCharacter: AddonDesBrumesDB
 
-AddonDesBrumes.lua
-Cadres.lua
-Icones.lua
-Mesures.lua
-Talents.lua
-Attaque.lua
-Equip.lua
-Buffs.lua
-Effets.lua
-Pets.lua
-Liens.lua
-Transfert.lua
-Quetes.lua
-Vue.lua
-Don.lua
-Alt.lua
-Formes.lua
-Ajouts.lua
-AddonDesBrumes.xml
+# ORDRE = ORDRE DE CHAÎNAGE DES WRAPPERS (Ad Wrap/hooksecurefunc) : ne pas modifier.
+Core\Init.lua
+Core\Constants.lua
+Core\Utils.lua
+Core\Events.lua
+Core\Network.lua
+Core\Group.lua
+Core\Database.lua
+Core\Slash.lua
+Core\Lifecycle.lua
+UI\Widgets.lua
+UI\Icons.lua
+Data\PetTypes.lua
+Logic\Stats.lua
+Logic\Sync.lua
+Logic\Items.lua
+Logic\NPC.lua
+Logic\Combat.lua
+UI\UnitFrames.lua
+UI\ConfigWindow.lua
+UI\InventoryWindow.lua
+UI\ItemCreator.lua
+UI\CombatUI.lua
+Logic\Measure.lua
+Logic\Talents.lua
+Logic\TalentNet.lua
+Logic\TalentUse.lua
+UI\TalentWindow.lua
+UI\ActionBar.lua
+Logic\BasicAttack.lua
+Logic\EquipmentSkills.lua
+Logic\Buffs.lua
+UI\BuffUI.lua
+Logic\Effects.lua
+Data\EffectScripts.lua
+Logic\Pets.lua
+UI\PetUI.lua
+Logic\Links.lua
+Logic\Transfer.lua
+Logic\Quests.lua
+Logic\Loot.lua
+UI\QuestUI.lua
+Logic\Inspect.lua
+Logic\Gifts.lua
+Logic\Alt.lua
+Logic\Forms.lua
+Logic\CombatFeedback.lua
+UI\TypingIndicator.lua
+UI\GmTools.lua
+UI\Templates.xml
