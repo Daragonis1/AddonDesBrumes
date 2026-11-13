@@ -223,15 +223,23 @@ function TalentNet.Receive(cmd, sender, message)
             tree.nodes[n.id] = n
             tree.nextId = max(tree.nextId, n.id + 1)
         end
-    elseif cmd == "TD" then
+        elseif cmd == "TD" then
         local n = tree.nodes[nodeId]
         local idx, total = tonumber(p[4]), tonumber(p[5])
         if n and idx and total and total >= 1 and total <= 40 and idx >= 1 and idx <= total then
             n.descParts = n.descParts or {}
             n.descParts[floor(idx)] = Decode(p[6] or "")
-            for i = 1, total do if not n.descParts[i] then goto done end end
-            n.desc = Talents.SanitizeDesc(table.concat(n.descParts, "", 1, total))
-            n.descParts = nil
+            local complete = true
+            for i = 1, total do
+                if not n.descParts[i] then
+                    complete = false
+                    break
+                end
+            end
+            if complete then
+                n.desc = Talents.SanitizeDesc(table.concat(n.descParts, "", 1, total))
+                n.descParts = nil
+            end
         end
     elseif cmd == "TF" then
         local n = tree.nodes[nodeId]
@@ -251,7 +259,6 @@ function TalentNet.Receive(cmd, sender, message)
             n.tagParts = nil
         end
     end
-    ::done::
     Talents.Refresh()
 end
 

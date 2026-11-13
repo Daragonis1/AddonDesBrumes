@@ -1,39 +1,49 @@
 -- Logic/Talents.lua : talent trees (data model, validation), learning, points, cooldowns, state.
 -- Networking → TalentNet.lua · execution → TalentUse.lua · windows → UI/TalentWindow.lua, UI/ActionBar.lua.
 -- NOTE: every wrappable function is called through the `Talents` table (never a local alias).
-local ADB = ADB
-local floor, min, max = math.floor, math.min, math.max
-local format = string.format
+local ADB              = ADB
+local floor, min, max  = math.floor, math.min, math.max
+local format           = string.format
 local Clamp, CleanName = ADB.Clamp, ADB.CleanName
 
-local Talents = {}
-ADB.Talents = Talents
-Talents.viewClass = nil   -- tree currently displayed in the window (nil = own class)
-Talents.pending   = nil   -- [token] = request awaiting GM approval (set in Init)
-Talents.token     = 0
-Talents.source    = nil   -- GM name trees were requested from
+local Talents          = {}
+ADB.Talents            = Talents
+Talents.viewClass      = nil -- tree currently displayed in the window (nil = own class)
+Talents.pending        = nil -- [token] = request awaiting GM approval (set in Init)
+Talents.token          = 0
+Talents.source         = nil -- GM name trees were requested from
 
-local TALENT = {
-    COLS = 12, ROWS = 32, XOFF = 1000000, CELL = 52, ICON = 38,
-    MAX_REQUIRES = 6, DESC_MAX = 1000, NAME_MAX = 40, MANA_MAX = 999, HP_COST_MAX = 999,
-    RANGE_MAX = 200, AOE_MAX = 200, TAGS_MAX = 30,
+local TALENT           = {
+    COLS = 16,
+    ROWS = 32,
+    XOFF = 1000000,
+    CELL = 52,
+    ICON = 38,
+    MAX_REQUIRES = 6,
+    DESC_MAX = 1000,
+    NAME_MAX = 40,
+    MANA_MAX = 999,
+    HP_COST_MAX = 999,
+    RANGE_MAX = 200,
+    AOE_MAX = 200,
+    TAGS_MAX = 30,
     NODE_TYPES = { "Actif", "Passif" },
     STATS = { "Aucune", "Force", "Agilité", "Intelligence", "Principale" },
     EFFECT_TYPES = { "Dégâts", "Soins", "Bouclier", "Autre" },
-    ELEMENTS = { "Physique", "Sacré", "Ombre", "Chaos", "Feu", "Nature", "Astral", "Givre" },
+    ELEMENTS = { "Physique", "Sacré", "Ombre", "Chaos", "Feu", "Nature", "Astral", "Givre", "Arcanes", "Harmonie", "Ruine" },
     -- order is persisted (node.limit = index). unit: r = rest, t = turn, i = unlimited. charges: multi-use.
     USE_LIMITS = {
-        { label = "1/repos", duration = 1, unit = "r" },
-        { label = "1/5 tours", duration = 5, unit = "t" },
+        { label = "1/repos",    duration = 1,  unit = "r" },
+        { label = "1/5 tours",  duration = 5,  unit = "t" },
         { label = "1/10 tours", duration = 10, unit = "t" },
-        { label = "1/3 repos", duration = 3, unit = "r" },
-        { label = "Illimité", duration = 0, unit = "i" },
-        { label = "2/repos", duration = 2, unit = "r", charges = 2 },
+        { label = "1/3 repos",  duration = 3,  unit = "r" },
+        { label = "Illimité",   duration = 0,  unit = "i" },
+        { label = "2/repos",    duration = 2,  unit = "r", charges = 2 },
     },
     TAG_REQUIREMENTS = { dreadsteed = "Pierre d'âme de Destrier" },
 }
-ADB.TALENT = TALENT
-local USE_LIMITS = TALENT.USE_LIMITS
+ADB.TALENT             = TALENT
+local USE_LIMITS       = TALENT.USE_LIMITS
 
 ------------------------------------------------------------------------------
 -- Sanitizers & validation
@@ -66,7 +76,8 @@ local function ApplyExtras(n, t)
     n.accuracy = Clamp(floor(tonumber(t.accuracy) or -1), -1, 100)
     n.aoe = Clamp(floor(tonumber(t.aoe) or -1), -1, TALENT.AOE_MAX)
     n.tags = Talents.SanitizeTags(t.tags)
-    n.isSpec, n.specTagX, n.specTagY = (t.isSpec == true), Talents.SanitizeTag(t.specTagX), Talents.SanitizeTag(t.specTagY)
+    n.isSpec, n.specTagX, n.specTagY = (t.isSpec == true), Talents.SanitizeTag(t.specTagX),
+        Talents.SanitizeTag(t.specTagY)
     n.buffId = (n.nodeType == 1) and Clamp(floor(tonumber(t.buffId) or 0), 0, 9999) or 0
     if n.nodeType == 2 then
         n.hpCost, n.range, n.accuracy, n.aoe = -1, -1, -1, -1
@@ -125,9 +136,17 @@ function Talents.ValidateColorBox(t)
     local y2 = Clamp(floor(tonumber(t.y2) or 1), 1, TALENT.ROWS)
     if x1 > x2 then x1, x2 = x2, x1 end
     if y1 > y2 then y1, y2 = y2, y1 end
-    return { id = id, x1 = x1, y1 = y1, x2 = x2, y2 = y2,
-        r = Clamp(floor(tonumber(t.r) or 80), 0, 255), g = Clamp(floor(tonumber(t.g) or 80), 0, 255),
-        b = Clamp(floor(tonumber(t.b) or 80), 0, 255), a = Clamp(floor(tonumber(t.a) or 30), 5, 100) }
+    return {
+        id = id,
+        x1 = x1,
+        y1 = y1,
+        x2 = x2,
+        y2 = y2,
+        r = Clamp(floor(tonumber(t.r) or 80), 0, 255),
+        g = Clamp(floor(tonumber(t.g) or 80), 0, 255),
+        b = Clamp(floor(tonumber(t.b) or 80), 0, 255),
+        a = Clamp(floor(tonumber(t.a) or 30), 5, 100)
+    }
 end
 
 -- Validates db.talents = { trees, learned, cooldowns, extraClasses }.
@@ -157,8 +176,10 @@ function Talents.InitDB(db)
                     end
                 end
                 trees[class] = {
-                    nextId = max(maxId + 1, floor(tonumber(a.nextId) or 1)), nodes = nodes,
-                    colorBoxes = boxes, nextBoxId = max(maxBox + 1, floor(tonumber(a.nextBoxId) or 1)),
+                    nextId = max(maxId + 1, floor(tonumber(a.nextId) or 1)),
+                    nodes = nodes,
+                    colorBoxes = boxes,
+                    nextBoxId = max(maxBox + 1, floor(tonumber(a.nextBoxId) or 1)),
                 }
             end
         end
@@ -253,15 +274,28 @@ function Talents.PointsTotal() return 3 + (ADB.db.level or 1) end
 ------------------------------------------------------------------------------
 -- Additional classes: item tag "AddClass<Name>" (inventory or worn equipment)
 ------------------------------------------------------------------------------
-local ACCENTS = { ["é"] = "e", ["è"] = "e", ["ê"] = "e", ["ë"] = "e", ["É"] = "e", ["à"] = "a", ["â"] = "a",
-    ["î"] = "i", ["ï"] = "i", ["ô"] = "o", ["û"] = "u", ["ù"] = "u", ["ç"] = "c" }
+local ACCENTS = {
+    ["é"] = "e",
+    ["è"] = "e",
+    ["ê"] = "e",
+    ["ë"] = "e",
+    ["É"] = "e",
+    ["à"] = "a",
+    ["â"] = "a",
+    ["î"] = "i",
+    ["ï"] = "i",
+    ["ô"] = "o",
+    ["û"] = "u",
+    ["ù"] = "u",
+    ["ç"] = "c"
+}
 local function Slug(s)
     s = s:lower()
     s = s:gsub("[\195][\128-\191]", function(c) return ACCENTS[c] or "" end)
     return (s:gsub("[^%w]", ""))
 end
 
-local CLASS_TAG = {}   -- ["addclassmage"] = "Mage"
+local CLASS_TAG = {} -- ["addclassmage"] = "Mage"
 for _, c in ipairs(ADB.CLASSES) do
     if c.name ~= ADB.GM_CLASS and c.name ~= ADB.EQUIPMENT_CLASS then
         CLASS_TAG["addclass" .. Slug(c.name)] = c.name
@@ -551,6 +585,9 @@ function Talents.GetState(n)
     end
     if n.hpCost > 0 and d.hp < n.hpCost then
         return false, format("PV insuffisants (%d / %d requis).", d.hp, n.hpCost)
+    end
+    if n.reaction and ADB.skipTurn then
+        return false, "Votre action du prochain tour est déjà consommée par une réaction.", "react"
     end
     local cd, L = Talents.GetCooldown(n), USE_LIMITS[n.limit]
     if cd >= (L.charges or 1) then

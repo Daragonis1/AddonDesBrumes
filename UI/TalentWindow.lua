@@ -29,7 +29,8 @@ function TW.ShowTooltip(owner, n, mode, G, anchor)
     G:AddLine(TALENT.NODE_TYPES[n.nodeType], 0.7, 0.7, 0.7)
     if n.isSpec then G:AddLine("Spécialisation (une seule à la fois)", 0.8, 0.5, 1) end
     if n.stat > 1 then
-        G:AddLine("Statistique : " .. TALENT.STATS[Talents.EffectiveStat(n)] .. (n.stat == 5 and " (Principale)" or ""), 1, 1, 1)
+        G:AddLine("Statistique : " .. TALENT.STATS[Talents.EffectiveStat(n)] .. (n.stat == 5 and " (Principale)" or ""),
+            1, 1, 1)
     end
     G:AddLine("Interaction : " .. TALENT.EFFECT_TYPES[n.effect], 1, 1, 1)
     G:AddLine("Élément : " .. TALENT.ELEMENTS[n.element], 1, 1, 1)
@@ -44,7 +45,12 @@ function TW.ShowTooltip(owner, n, mode, G, anchor)
         if n.bonusAction then G:AddLine("Compétence utilisant l'Action Bonus", 1, 0.5, 0.1) end
     end
     local bar = (mode == "bar")
-    local text = Talents.FormatDescription(n.desc, bar, bar and Talents.Multiplier(n) or 1, bar and Talents.SpecBonus(n) or 0)
+    local mult = bar and Talents.Multiplier(n) or 1
+    if bar and n.effect == 1 then
+        local _, _, dmg = ADB.Buffs.GetBonus("P:" .. ADB.playerName)
+        mult = mult * dmg
+    end
+    local text = Talents.FormatDescription(n.desc, bar, mult, bar and Talents.SpecBonus(n) or 0)
     if text ~= "" then
         G:AddLine(" ")
         G:AddLine(text, 1, 0.9, 0.6, true)
@@ -228,7 +234,8 @@ function TW.OnNodeClick(b, button)
             elseif not learned[n.id] then
                 local s = n.isSpec and Talents.ActiveSpec()
                 if s then
-                    UIErrorsFrame:AddMessage("Une seule spécialisation à la fois : oubliez « " .. s.name .. " » d'abord.", 1, 0.3, 0.3)
+                    UIErrorsFrame:AddMessage(
+                        "Une seule spécialisation à la fois : oubliez « " .. s.name .. " » d'abord.", 1, 0.3, 0.3)
                 else
                     UIErrorsFrame:AddMessage("Talent verrouillé (prérequis ou points manquants).", 1, 0.3, 0.3)
                 end
@@ -274,8 +281,17 @@ function TW.CreateBox(x1, y1, x2, y2)
     while a.colorBoxes[id] do id = id + 1 end
     a.nextBoxId = id + 1
     local p = BOX_PALETTE[(id - 1) % #BOX_PALETTE + 1]
-    a.colorBoxes[id] = Talents.ValidateColorBox({ id = id, x1 = x1, y1 = y1, x2 = x2, y2 = y2,
-        r = p[1], g = p[2], b = p[3], a = 30 })
+    a.colorBoxes[id] = Talents.ValidateColorBox({
+        id = id,
+        x1 = x1,
+        y1 = y1,
+        x2 = x2,
+        y2 = y2,
+        r = p[1],
+        g = p[2],
+        b = p[3],
+        a = 30
+    })
     ADB.talFrame.selBox = id
     ADB.TalentNet.ScheduleColorBox(Talents.ClassIndex(Talents.viewClass), id)
 end
@@ -317,8 +333,12 @@ function TW.PickBoxColor()
     P.opacity = 1 - b.a / 100
     P.previousValues = { b.r / 255, b.g / 255, b.b / 255, 1 - b.a / 100 }
     P.cancelFunc = function(prev)
-        TW.ModifyBox({ r = floor(prev[1] * 255 + 0.5), g = floor(prev[2] * 255 + 0.5),
-            b = floor(prev[3] * 255 + 0.5), a = floor((1 - prev[4]) * 100 + 0.5) })
+        TW.ModifyBox({
+            r = floor(prev[1] * 255 + 0.5),
+            g = floor(prev[2] * 255 + 0.5),
+            b = floor(prev[3] * 255 + 0.5),
+            a = floor((1 - prev[4]) * 100 + 0.5)
+        })
     end
     P:SetColorRGB(b.r / 255, b.g / 255, b.b / 255)
     P.func = function()
@@ -412,16 +432,25 @@ local function CreateCells(f)
 end
 
 local function CreateNodeButton(f)
+    local S = TALENT.ICON
     local b = CreateFrame("Button", nil, f.canvas)
-    b:SetSize(TALENT.ICON, TALENT.ICON)
-    b.border = b:CreateTexture(nil, "BACKGROUND")
-    b.border:SetPoint("TOPLEFT", -2, 2)
-    b.border:SetPoint("BOTTOMRIGHT", 2, -2)
+    b:SetSize(S, S)
     b.tex = b:CreateTexture(nil, "ARTWORK")
     b.tex:SetAllPoints()
     b.tex:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+    b.frame = b:CreateTexture(nil, "ARTWORK", nil, 1)
+    b.frame:SetTexture("Interface\\Buttons\\UI-Quickslot2")
+    b.frame:SetSize(S * 1.8, S * 1.8)
+    b.frame:SetPoint("CENTER")
+    b.glow = b:CreateTexture(nil, "OVERLAY")
+    b.glow:SetTexture("Interface\\Buttons\\UI-ActionButton-Border")
+    b.glow:SetBlendMode("ADD")
+    b.glow:SetSize(S * 1.75, S * 1.75)
+    b.glow:SetPoint("CENTER")
+    b.rank = b:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
+    b.rank:SetPoint("BOTTOMRIGHT", 3, -3)
     b.mark = b:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    b.mark:SetPoint("BOTTOMRIGHT", -2, 2)
+    b.mark:SetPoint("TOPLEFT", 1, -1)
     b:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
     b:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     b:SetScript("OnClick", function(self, btn) TW.OnNodeClick(self, btn) end)
@@ -574,12 +603,19 @@ function TW.Draw()
         b.tex:SetTexture(ADB.IconTexture(n.icon))
         local isLearned = own and learned[n.id] and true or false
         local ok = (own and not isLearned and Talents.CanLearn(n, class)) or (class == ADB.GM_CLASS and not ed)
-        local r, g, bl = 0.35, 0.35, 0.35
-        if ed then r, g, bl = 0.8, 0.8, 0.8
-        elseif isLearned then r, g, bl = 1, 0.82, 0
-        elseif ok then r, g, bl = 0.3, 1, 0.3 end
-        if ed and f.sel == n.id then r, g, bl = 0.2, 0.9, 1 end
-        b.border:SetColorTexture(r, g, bl, 1)
+        local gr, gg, gb, ga, rank, rr, rg, rb
+        if ed then
+            gr, gg, gb, ga = 0.8, 0.8, 0.8, 0.5
+            if f.sel == n.id then gr, gg, gb, ga = 0.2, 0.9, 1, 1 end
+        elseif isLearned then
+            gr, gg, gb, ga, rank, rr, rg, rb = 1, 0.82, 0, 1, "1", 1, 0.82, 0
+        elseif ok then
+            gr, gg, gb, ga, rank, rr, rg, rb = 0.1, 1, 0.1, 1, (class ~= ADB.GM_CLASS and "0" or ""), 0.1, 1, 0.1
+        end
+        b.glow:SetShown(ga ~= nil)
+        if ga then b.glow:SetVertexColor(gr, gg, gb, ga) end
+        b.rank:SetText(rank or "")
+        if rr then b.rank:SetTextColor(rr, rg, rb) end
         b.tex:SetDesaturated(not (ed or isLearned or ok))
         b.mark:SetText(n.isSpec and "S" or (n.nodeType == 2 and "P" or ""))
         b:EnableMouse(not zm)
@@ -588,27 +624,37 @@ function TW.Draw()
     end
     for i = #list + 1, #f.btns do f.btns[i]:Hide() end
 
-    -- prerequisite lines
-    local k = 0
+    -- prerequisite branches (orthogonal, Classic style)
+    local k, CS = 0, TALENT.CELL
+    local GOLD, GREEN, GREY, EDC = { 1, 0.82, 0, 1 }, { 0.3, 0.9, 0.3, 1 }, { 0.45, 0.45, 0.45, 0.9 },
+        { 0.7, 0.7, 0.95, 0.9 }
+    local function Seg(x1, y1, x2, y2, col)
+        k = k + 1
+        local l = f.lines[k]
+        if not l then
+            l = f.canvas:CreateLine(nil, "ARTWORK")
+            f.lines[k] = l
+        end
+        l:SetThickness(max(4, floor(CS / 10)))
+        l:SetStartPoint("TOPLEFT", f.canvas, x1, y1)
+        l:SetEndPoint("TOPLEFT", f.canvas, x2, y2)
+        l:SetColorTexture(col[1], col[2], col[3], col[4])
+        l:Show()
+    end
     for _, n in ipairs(list) do
         for _, r in ipairs(n.requires) do
-            local pb = f.byId[r]
-            if pb then
-                k = k + 1
-                local l = f.lines[k]
-                if not l then
-                    l = f.canvas:CreateLine(nil, "ARTWORK")
-                    f.lines[k] = l
-                end
-                l:SetThickness(3)
-                l:SetStartPoint("CENTER", pb)
-                l:SetEndPoint("CENTER", f.byId[n.id])
+            local p = nodes[r]
+            if p and f.byId[r] then
                 local pa, na = own and learned[r], own and learned[n.id]
-                if ed then l:SetColorTexture(0.7, 0.7, 0.95, 0.9)
-                elseif pa and na then l:SetColorTexture(1, 0.82, 0, 1)
-                elseif pa then l:SetColorTexture(0.3, 0.8, 0.3, 1)
-                else l:SetColorTexture(0.4, 0.4, 0.4, 1) end
-                l:Show()
+                local col = ed and EDC or ((pa and na) and GOLD or (pa and GREEN or GREY))
+                local px, py = (p.x - 0.5) * CS, -(p.y - 0.5) * CS
+                local cx, cy = (n.x - 0.5) * CS, -(n.y - 0.5) * CS
+                if px ~= cx and py ~= cy then
+                    Seg(px, py, px, cy, col)
+                    Seg(px, cy, cx, cy, col)
+                else
+                    Seg(px, py, cx, cy, col)
+                end
             end
         end
     end
@@ -629,11 +675,16 @@ end
 ------------------------------------------------------------------------------
 -- Creation
 ------------------------------------------------------------------------------
-local LIMIT_ORDER = { 1, 6, 2, 3, 4, 5 }   -- display order of USE_LIMITS
+local LIMIT_ORDER = { 1, 6, 2, 3, 4, 5 } -- display order of USE_LIMITS
 
 StaticPopupDialogs["ADB_TAL_RESET"] = {
     text = "Réinitialiser tous vos talents appris ?",
-    button1 = YES, button2 = NO, timeout = 0, whileDead = 1, hideOnEscape = 1, preferredIndex = 3,
+    button1 = YES,
+    button2 = NO,
+    timeout = 0,
+    whileDead = 1,
+    hideOnEscape = 1,
+    preferredIndex = 3,
     OnAccept = function()
         for _, c in ipairs(Talents.AccessibleClasses()) do wipe(Talents.Learned(c)) end
         Talents.Refresh()
@@ -641,23 +692,40 @@ StaticPopupDialogs["ADB_TAL_RESET"] = {
 }
 
 function TW.Create()
-    local PX = 672
-    local f = UI.BaseWindow("ADBTalentFrame", 950, 690, "Arbre de talents")
+    local W = Clamp(floor(UIParent:GetWidth() * 0.96), 1000, 1560)
+    local H = Clamp(floor(UIParent:GetHeight() * 0.94), 700, 1000)
+    TALENT.CELL = Clamp(floor((W - 318) / TALENT.COLS), 44, 76)
+    TALENT.ICON = floor(TALENT.CELL * 0.62)
+    local cw = TALENT.COLS * TALENT.CELL
+    W = cw + 318
+    local PX = 14 + cw + 34
+    local f = UI.BaseWindow("ADBTalentFrame", W, H, "Arbre de talents")
     ADB.talFrame = f
+    f.PX, f.btnY = PX, -(H - 30)
     f:SetPoint("CENTER", 0, 0)
     f.btns, f.lines, f.byId, f.boxTex = {}, {}, {}, {}
     tinsert(UISpecialFrames, "ADBTalentFrame")
 
     local sf = CreateFrame("ScrollFrame", "ADBTalScroll", f, "UIPanelScrollFrameTemplate")
     sf:SetPoint("TOPLEFT", 14, -34)
-    sf:SetSize(TALENT.COLS * TALENT.CELL, 640)
+    sf:SetSize(cw, H - 54)
     local c = CreateFrame("Frame", nil, sf)
-    c:SetSize(TALENT.COLS * TALENT.CELL, TALENT.ROWS * TALENT.CELL)
+    c:SetSize(cw, TALENT.ROWS * TALENT.CELL)
     sf:SetScrollChild(c)
     f.canvas = c
-    local bg = c:CreateTexture(nil, "BACKGROUND")
+    local bg = c:CreateTexture(nil, "BACKGROUND", nil, -8)
     bg:SetAllPoints()
-    bg:SetColorTexture(0.04, 0.03, 0.09, 0.9)
+    bg:SetColorTexture(0.09, 0.065, 0.04, 1)
+    local tile = c:CreateTexture(nil, "BACKGROUND", nil, -7)
+    tile:SetAllPoints()
+    tile:SetTexture("Interface\\DialogFrame\\UI-DialogBox-Background", "REPEAT", "REPEAT")
+    tile:SetVertexColor(1, 0.8, 0.55, 0.45)
+    local bd = CreateFrame("Frame", nil, f, "BackdropTemplate")
+    bd:SetPoint("TOPLEFT", sf, -6, 6)
+    bd:SetPoint("BOTTOMRIGHT", sf, 6, -6)
+    bd:SetFrameLevel(sf:GetFrameLevel() + 10)
+    bd:SetBackdrop({ edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border", edgeSize = 14 })
+    bd:SetBackdropBorderColor(0.85, 0.68, 0.25, 1)
     f.Empty = c:CreateFontString(nil, "OVERLAY", "GameFontDisable")
     f.Empty:SetPoint("TOP", 0, -20)
 

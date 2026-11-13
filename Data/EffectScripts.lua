@@ -8,11 +8,6 @@ hit: cd "#KillOrder" 1
 E.DefineTag("ReducCDTraqueffroi", [[
 hit: cd "#Traqueffroi" 1
 ]])
-
-E.Define("Guérison du familier", [[
-hit [pet]: heal pet 7
-hit [!pet]: heal target 4
-]])
 E.Define("Aspect de la tortue", [[
 hit [pet]: shield self 6; shield pet 6
 hit [!pet]: shield self 3; shield target 3
@@ -32,6 +27,18 @@ passive: bonus "Rossée sauvage" 5
 E.Define("Démoniste", [[
 passive: manatopv
 ]])
-E.Define("Luna gardienne", [[
+E.DefineTag("DemonicBolt", [[
+hit: cd "#Traqueffroi" 1 t
+]])
+E.DefineTag("Moonguard", [[
 passive: luna 50
+]])
+E.DefineTag("Immolate", [[
+hit: manaint 3
+]])
+E.DefineTag("PetHeal", [[
+hit: petheal 4 7
+]])
+E.DefineTag("avatarofvengeance", [[
+use: avatar
 ]])

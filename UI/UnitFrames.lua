@@ -6,7 +6,7 @@ local format = string.format
 
 local UF = {}
 ADB.UnitFrames = UF
-ADB.petMinis, ADB.altMinis = {}, {}   -- registries: parent frame -> mini frame
+ADB.petMinis, ADB.altMinis = {}, {} -- registries: parent frame -> mini frame
 
 local TEX = "Interface\\TargetingFrame\\"
 local BAR_TEXTURE = TEX .. "UI-StatusBar"
@@ -177,8 +177,14 @@ end
 
 StaticPopupDialogs["ADB_SAISIE_VALEUR"] = {
     text = "Nouvelle valeur pour %s (0 à %s) :",
-    button1 = ACCEPT, button2 = CANCEL, hasEditBox = 1, maxLetters = 4, timeout = 0, whileDead = 1,
-    hideOnEscape = 1, preferredIndex = 3,
+    button1 = ACCEPT,
+    button2 = CANCEL,
+    hasEditBox = 1,
+    maxLetters = 4,
+    timeout = 0,
+    whileDead = 1,
+    hideOnEscape = 1,
+    preferredIndex = 3,
     OnShow = function(self, data)
         self.editBox:SetNumeric(true)
         self.editBox:SetText(tostring(data and data.current or 0))
@@ -281,9 +287,13 @@ function UF.ShowBarTooltip(bar)
     if not ADB.IsGM() then return end
     local p = bar:GetParent()
     local editable
-    if p.npcId then editable = true
-    elseif p.charName then editable = ADB.Group.CanEdit(p.charName)
-    else editable = true end
+    if p.npcId then
+        editable = true
+    elseif p.charName then
+        editable = ADB.Group.CanEdit(p.charName)
+    else
+        editable = true
+    end
     GameTooltip:SetOwner(bar, "ANCHOR_RIGHT")
     GameTooltip:AddLine(bar.kind == "hp" and "Points de vie" or "Points de mana", 1, 1, 1)
     if editable then
@@ -447,6 +457,7 @@ function UF.LayoutGroup()
     local list = ADB.Group.ListDisplayedMembers()
     for i, m in ipairs(list) do
         local b = GetMemberFrame(i)
+        b:SetScale(UF.GetScale("groupScale"))
         local col = floor((i - 1) / ADB.MEMBERS_PER_COLUMN)
         local row = (i - 1) % ADB.MEMBERS_PER_COLUMN
         b:ClearAllPoints()
@@ -478,6 +489,27 @@ function UF.ScheduleLayout()
     end)
 end
 
+function UF.GetScale(key)
+    local s = ADB.db and ADB.db.settings and tonumber(ADB.db.settings[key])
+    return s or 1
+end
+
+local scalePending
+function UF.ApplyScales()
+    if not ADB.db or not ADBPlayerFrame then return end
+    ADBTargetFrame:SetScale(UF.GetScale("targetScale"))
+    if InCombatLockdown() then
+        scalePending = true -- cadres sécurisés : SetScale interdit en combat
+    else
+        scalePending = false
+        ADBPlayerFrame:SetScale(UF.GetScale("playerScale"))
+        local g = UF.GetScale("groupScale")
+        for _, b in ipairs(ADB.memberFrames) do b:SetScale(g) end
+    end
+    UF.LayoutNpcs()
+    UF.RefreshMinis()
+end
+
 ------------------------------------------------------------------------------
 -- NPC frames
 ------------------------------------------------------------------------------
@@ -492,7 +524,8 @@ function UF.LayoutNpcs()
     if not ADB.db or not ADBNpcFrame then return end
     local pitch = Pitch()
     ADBNpcFrame:ClearAllPoints()
-    ADBNpcFrame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 5, -(130 + ADB.memberRows * pitch + 8))
+    ADBNpcFrame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 5,
+        -(130 + ADB.memberRows * pitch * UF.GetScale("groupScale") + 8))
     local list = {}
     for _, p in ipairs(ADB.NPC.List()) do
         if not p.owner then list[#list + 1] = p end
@@ -540,7 +573,12 @@ end
 
 StaticPopupDialogs["ADB_SUPPRIMER_PNJ"] = {
     text = "Supprimer le PNJ « %s » du groupe ?",
-    button1 = YES, button2 = NO, timeout = 0, whileDead = 1, hideOnEscape = 1, preferredIndex = 3,
+    button1 = YES,
+    button2 = NO,
+    timeout = 0,
+    whileDead = 1,
+    hideOnEscape = 1,
+    preferredIndex = 3,
     OnAccept = function(_, data) ADB.NPC.Delete(data) end,
 }
 
@@ -603,7 +641,7 @@ function UF.UpdatePortraits()
     local list = ADB.NPC.List()
     for _, f in ipairs(ADB.npcFrames) do
         if f:IsShown() and f.npcId and f.Icon then
-            if f.portraitId ~= f.npcId then   -- frame reassigned to another NPC: back to "?"
+            if f.portraitId ~= f.npcId then -- frame reassigned to another NPC: back to "?"
                 f.portraitId = f.npcId
                 f.Icon:SetTexture(QUESTION_MARK)
                 f.Icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
@@ -682,7 +720,7 @@ function UF.RefreshMinis()
     local seen = {}
     for _, c in ipairs(targets) do
         local parent, prev = c[1], nil
-        for k = 1, 2 do   -- k = 1: alt character, k = 2: pet
+        for k = 1, 2 do -- k = 1: alt character, k = 2: pet
             local p = (k == 1 and ADB.Pets.FindAlt or ADB.Pets.FindByOwner)(c[2])
             if p then
                 local registry = k == 1 and ADB.altMinis or ADB.petMinis
@@ -692,10 +730,15 @@ function UF.RefreshMinis()
                     registry[parent] = m
                 end
                 m:ClearAllPoints()
-                if prev then m:SetPoint("LEFT", prev, "RIGHT", 2, 0)
-                elseif c[3] then m:SetPoint("LEFT", parent, "RIGHT", 2, 0)
-                else m:SetPoint("TOPLEFT", parent, "BOTTOMLEFT", 10, 0) end
+                if prev then
+                    m:SetPoint("LEFT", prev, "RIGHT", 2, 0)
+                elseif c[3] then
+                    m:SetPoint("LEFT", parent, "RIGHT", 2, 0)
+                else
+                    m:SetPoint("TOPLEFT", parent, "BOTTOMLEFT", 10, 0)
+                end
                 prev = m
+                m:SetScale(c[3] and 0.8 or (0.8 * UF.GetScale("petScale") / UF.GetScale("playerScale")))
                 m.npcId = p.id
                 if k == 1 then
                     if m.alt ~= p.name then
@@ -768,6 +811,7 @@ function UF.OnCombatEnd()
     if hidePending then UF.HideBlizzard() end
     if layoutPending then UF.LayoutGroup() end
     if targetingPending then UF.UpdateTargeting() end
+    if scalePending then UF.ApplyScales() end
 end
 
 ------------------------------------------------------------------------------

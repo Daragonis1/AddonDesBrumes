@@ -6,6 +6,21 @@ local floor, min = math.floor, math.min
 local AB = {}
 ADB.ActionBar = AB
 
+function AB.Usable(n)
+    if not ADB.Talents.GetState(n) then return false end
+    return n.reaction or (ADB.phase == "PLAYER_TURN" and not ADB.turnPassed)
+end
+
+local function Value(n)
+    local T = ADB.Talents
+    local _, v = T.FormatDescription(n.desc, true, T.Multiplier(n), T.SpecBonus(n))
+    if v and n.effect == 1 then
+        local _, _, dmg = ADB.Buffs.GetBonus("P:" .. ADB.playerName)
+        v = floor(v * dmg + 0.5)
+    end
+    return (v and n.effect <= 3) and v or nil
+end
+
 local function Tooltip(b)
     local n = ADB.Talents.GetNode(b.id)
     if not n then return end
@@ -64,6 +79,8 @@ local function CreateButton(i)
     b.cd:SetPoint("CENTER")
     b.flag = b:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     b.flag:SetPoint("TOPLEFT", 2, -2)
+    b.val = b:CreateFontString(nil, "OVERLAY", "NumberFontNormalSmall")
+    b.val:SetPoint("BOTTOMRIGHT", -2, 2)
     b:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
     b:SetScript("OnClick", function(self) AB.OnClick(self) end)
     b:SetScript("OnEnter", Tooltip)
@@ -106,7 +123,9 @@ function AB.Refresh()
         btn:SetPoint("TOPLEFT", b, "TOPLEFT", 8 + ((i - 1) % perRow) * 44, -8 - floor((i - 1) / perRow) * 44)
         btn.id = n.id
         btn.tex:SetTexture(ADB.IconTexture(n.icon))
-        local ok = T.GetState(n)
+        local ok = AB.Usable(n)
+        btn.val:SetText(Value(n) or "")
+        if GameTooltip:IsOwned(btn) then Tooltip(btn) end
         btn.tex:SetDesaturated(not ok)
         btn.dark:SetShown(not ok)
         local cd = T.GetCooldown(n)

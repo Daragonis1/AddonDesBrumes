@@ -4,37 +4,100 @@ local floor, max = math.floor, math.max
 local Clamp, CleanName = ADB.Clamp, ADB.CleanName
 
 ADB.DB_DEFAULTS = {
-    xp = 0, level = 1, race = "Humain", class = "Guerrier",
+    xp = 0,
+    level = 1,
+    race = "Humain",
+    class = "Guerrier",
     base = { strength = 0, agility = 0, intellect = 0 },
-    rpName = "", replaceUI = true, minimap = { angle = 200 },
-    npcs = {}, nextNpcId = 1, copper = 0, shield = 0, inventory = {}, equipment = {},
+    rpName = "",
+    replaceUI = true,
+    minimap = { angle = 200 },
+    npcs = {},
+    nextNpcId = 1,
+    copper = 0,
+    shield = 0,
+    inventory = {},
+    equipment = {},
     talents = { trees = {}, learned = {}, cooldowns = {} },
+    settings = { questFont = 1, playerScale = 1, petScale = 1, groupScale = 1, targetScale = 1 },
 }
 
 ------------------------------------------------------------------------------
 -- Migration schema 1 (French keys) -> 2 (English keys). Idempotent.
 ------------------------------------------------------------------------------
 local MAP = {
-    root = { nomRP = "rpName", uiRemplacee = "replaceUI", pnjs = "npcs", pnjProchainId = "nextNpcId",
-        pc = "copper", sh = "shield", inv = "inventory", equip = "equipment", classe = "class",
-        pv = "hp", pm = "mp", quetes = "quests", qMin = "questsMinimized", qPos = "questsPos",
-        tyPos = "typingPos", sec = "secondary", sha = "shaForm", buffProchainId = "nextBuffId" },
+    root = {
+        nomRP = "rpName",
+        uiRemplacee = "replaceUI",
+        pnjs = "npcs",
+        pnjProchainId = "nextNpcId",
+        pc = "copper",
+        sh = "shield",
+        inv = "inventory",
+        equip = "equipment",
+        classe = "class",
+        pv = "hp",
+        pm = "mp",
+        quetes = "quests",
+        qMin = "questsMinimized",
+        qPos = "questsPos",
+        tyPos = "typingPos",
+        sec = "secondary",
+        sha = "shaForm",
+        buffProchainId = "nextBuffId"
+    },
     base = { force = "strength", agilite = "agility", intelligence = "intellect" },
     talents = { arbres = "trees", appris = "learned", cd = "cooldowns", extras = "extraClasses" },
     tree = { noeuds = "nodes", prochain = "nextId", cbProchain = "nextBoxId" },
-    node = { typ = "nodeType", inter = "effect", elem = "element", lim = "limit", reac = "reaction",
-        bonus = "bonusAction", req = "requires", nom = "name", coutPV = "hpCost", portee = "range",
-        precision = "accuracy", zoe = "aoe", spe = "isSpec", specX = "specTagX", specY = "specTagY" },
-    npc = { nom = "name", pvMax = "maxHp", pmMax = "maxMp", pv = "hp", pm = "mp", sh = "shield",
-        rp = "rpName", classe = "class", pc = "copper", force = "strength", agilite = "agility",
-        intelligence = "intellect" },
+    node = {
+        typ = "nodeType",
+        inter = "effect",
+        elem = "element",
+        lim = "limit",
+        reac = "reaction",
+        bonus = "bonusAction",
+        req = "requires",
+        nom = "name",
+        coutPV = "hpCost",
+        portee = "range",
+        precision = "accuracy",
+        zoe = "aoe",
+        spe = "isSpec",
+        specX = "specTagX",
+        specY = "specTagY"
+    },
+    npc = {
+        nom = "name",
+        pvMax = "maxHp",
+        pmMax = "maxMp",
+        pv = "hp",
+        pm = "mp",
+        sh = "shield",
+        rp = "rpName",
+        classe = "class",
+        pc = "copper",
+        force = "strength",
+        agilite = "agility",
+        intelligence = "intellect"
+    },
     item = { rar = "rarity", st = "stats", nom = "name", comp = "skillsText", sk = "skillIds" },
     buffDef = { nom = "name", duree = "duration", typ = "buffType", val = "value" },
     quest = { t = "title", d = "desc" },
     sha = { niv = "tier", HealthBeforeTransform = "hpBeforeTransform" },
-    secondary = { nom = "name", rp = "rpName", classe = "class", pv = "hp", pm = "mp", sh = "shield",
-        pc = "copper", inv = "inventory", equip = "equipment", appris = "learned", cd = "cooldowns",
-        extras = "extraClasses" },
+    secondary = {
+        nom = "name",
+        rp = "rpName",
+        classe = "class",
+        pv = "hp",
+        pm = "mp",
+        sh = "shield",
+        pc = "copper",
+        inv = "inventory",
+        equip = "equipment",
+        appris = "learned",
+        cd = "cooldowns",
+        extras = "extraClasses"
+    },
 }
 
 local function Rename(t, map)
@@ -93,7 +156,11 @@ function ADB.InitDB()
     if type(db.minimap) ~= "table" then db.minimap = CopyTable(ADB.DB_DEFAULTS.minimap) end
     if type(db.minimap.angle) ~= "number" then db.minimap.angle = ADB.DB_DEFAULTS.minimap.angle end
     db.rpName = CleanName(db.rpName)
-    db.bonusForce, db.bonusAgi, db.bonusInt = nil, nil, nil   -- legacy fields
+    if type(db.settings) ~= "table" then db.settings = CopyTable(ADB.DB_DEFAULTS.settings) end
+    for k, v in pairs(ADB.DB_DEFAULTS.settings) do
+        db.settings[k] = Clamp(tonumber(db.settings[k]) or v, 0.5, 1.5)
+    end
+    db.bonusForce, db.bonusAgi, db.bonusInt = nil, nil, nil -- legacy fields
 
     if not ADB.RACE_BY_NAME[db.race] then db.race = "Humain" end
     if not ADB.CLASS_BY_NAME[db.class] or ADB.IsSpecialClass(db.class) then db.class = "Guerrier" end
@@ -135,7 +202,10 @@ function ADB.InitDB()
                 local id = floor(p.id)
                 local rp = type(p.rpName) == "string" and CleanName(p.rpName) or ""
                 valid[#valid + 1] = {
-                    id = id, name = name, maxHp = maxHp, maxMp = maxMp,
+                    id = id,
+                    name = name,
+                    maxHp = maxHp,
+                    maxMp = maxMp,
                     hp = Clamp(floor(tonumber(p.hp) or maxHp), 0, maxHp),
                     mp = Clamp(floor(tonumber(p.mp) or maxMp), 0, maxMp),
                     shield = Clamp(floor(tonumber(p.shield) or 0), 0, ADB.SHIELD_MAX),

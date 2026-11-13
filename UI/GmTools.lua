@@ -145,21 +145,116 @@ function GT.ValidateNpcCreate()
 end
 
 ------------------------------------------------------------------------------
--- "Action PNJ" (panel added to the GM combat window)
+-- Combat panel : frise, combattants de la phase, actions PNJ enregistrées
 ------------------------------------------------------------------------------
-function GT.NpcAction()
+local ROWS, MAX_ACTIONS = 8, 8
+local ROSTER_Y, ACTIONS_Y = -114, -404
+local GREY = { 0.2, 0.2, 0.2, 0.8 }
+local ROSTER_TITLE = {
+    PLAYER_TURN = "Joueurs (vert : n'a pas joué)",
+    ALLY_TURN = "Alliés (cliquer pour jouer)",
+    ENEMY_TURN = "Ennemis (cliquer pour jouer)"
+}
+
+function GT.SelectActor(key)
+    if not (ADB.IsGM() and key) or (ADB.phase ~= "ALLY_TURN" and ADB.phase ~= "ENEMY_TURN") then return end
+    for _, r in ipairs(ADB.Combat.Roster(ADB.phase)) do
+        if r.key == key and not r.done then
+            ADB.cbSelected = (ADB.cbSelected ~= key) and key or nil
+            break
+        end
+    end
+    ADB.CombatUI.Refresh()
+end
+
+function GT.AddEnemy()
     if not ADB.IsGM() then return end
-    local d = ADB.cbDM
-    local attacker = CleanName(d.Attacker:GetText())
-    local dmg = floor(tonumber(d.Damage:GetText()) or 0)
-    local accuracy = tonumber(d.Accuracy:GetText())
-    local desc = CleanName(d.Desc:GetText())
-    if attacker == "" then
-        ADB.Print("Donnez un attaquant.")
+    if ADB.phase == "IDLE" then
+        ADB.Print("Aucun combat en cours.")
         return
     end
-    if dmg == 0 then
-        ADB.Print("Dégâts invalides (négatif = soin).")
+    if not UnitExists("target") then
+        ADB.Print("Ciblez d'abord quelqu'un.")
+        return
+    end
+    if UnitIsPlayer("target") then
+        ADB.Print("Un joueur ne peut pas être un ennemi.")
+        return
+    end
+    local guid, name = UnitGUID("target"), UnitName("target")
+    local p = ADB.NPC.FindByName(name)
+    if p and p.ally then
+        ADB.Print("Cette cible est déjà un allié.")
+        return
+    end
+    for _, e in ipairs(ADB.combatEnemies) do
+        if e.guid == guid then
+            ADB.Print("Cette cible est déjà un ennemi du combat.")
+            return
+        end
+    end
+    if #ADB.combatEnemies >= ADB.NPC_MAX then
+        ADB.Print("Nombre maximum d'ennemis atteint.")
+        return
+    end
+    local label = p and ADB.NPC.DisplayName(p) or name
+    ADB.combatEnemies[#ADB.combatEnemies + 1] = { key = "E:" .. guid, guid = guid, name = label }
+    ADB.Print(label .. " ajouté aux ennemis.")
+    ADB.CombatUI.Refresh()
+end
+
+function GT.RemoveEnemy(key)
+    if not ADB.IsGM() then return end
+    for i, e in ipairs(ADB.combatEnemies) do
+        if e.key == key then
+            tremove(ADB.combatEnemies, i)
+            ADB.npcPlayed[key] = nil
+            if ADB.cbSelected == key then ADB.cbSelected = nil end
+            ADB.CombatUI.Refresh()
+            ADB.Combat.CheckPlayersDone()
+            return
+        end
+    end
+end
+
+function GT.SaveAction()
+    if not ADB.IsGM() then return end
+    local d = ADB.cbDM
+    local value = floor(tonumber(d.Effect:GetText()) or 0)
+    if value == 0 or abs(value) > 1000 then
+        ADB.Print("Effet invalide (-1000 à 1000, négatif = soin).")
+        return
+    end
+    local list = ADB.db.npcActions
+    if #list >= MAX_ACTIONS then
+        ADB.Print("Maximum " .. MAX_ACTIONS .. " actions enregistrées.")
+        return
+    end
+    local acc = tonumber(d.Accuracy:GetText())
+    list[#list + 1] = {
+        value = value,
+        accuracy = (acc and acc >= 1 and acc <= 99) and floor(acc) or nil,
+        desc = CleanName(d.Desc:GetText()):sub(1, 80)
+    }
+    d.Desc:SetText("")
+    GT.RefreshCombat()
+end
+
+function GT.RemoveAction(i)
+    if not ADB.IsGM() then return end
+    tremove(ADB.db.npcActions, i)
+    GT.RefreshCombat()
+end
+
+-- Lance l'action enregistrée i avec le PNJ sélectionné sur la cible actuelle.
+function GT.RunAction(i)
+    if not ADB.IsGM() then return end
+    local a, key, actor = ADB.db.npcActions[i], ADB.cbSelected, nil
+    for _, r in ipairs(ADB.Combat.Roster(ADB.phase)) do
+        if r.key == key and not r.done then actor = r end
+    end
+    if not (a and actor) then
+        ADB.Print("Sélectionnez d'abord un PNJ dont c'est le tour.")
         return
     end
     if not UnitExists("target") then
@@ -167,15 +262,21 @@ function GT.NpcAction()
         return
     end
     local target = ADB.Talents.TargetName()
-    local head = attacker .. " " .. (desc ~= "" and desc or ((dmg < 0 and "soigne " or "attaque ") .. target))
+    local dmg = a.value
+    local head = actor.name .. " " .. (a.desc ~= "" and a.desc or ((dmg < 0 and "soigne " or "attaque ") .. target))
     local rollText, ok, mult = nil, true, 1
-    if accuracy and accuracy >= 1 and accuracy <= 99 then
+    if a.accuracy then
         local r = math.random(1, 100)
         local t
-        if r <= 5 then t, mult = "c'est une réussite critique!", 2
-        elseif r >= 96 then t, ok = "c'est un échec critique!", false
-        elseif r <= accuracy then t = "c'est une réussite,"
-        else t, ok = "c'est un échec,", false end
+        if r <= 5 then
+            t, mult = "c'est une réussite critique!", 2
+        elseif r >= 96 then
+            t, ok = "c'est un échec critique!", false
+        elseif r <= a.accuracy then
+            t = "c'est une réussite,"
+        else
+            t, ok = "c'est un échec,", false
+        end
         rollText = format(", il fait %d, %s", r, t)
     end
     local v = abs(dmg) * mult
@@ -192,6 +293,161 @@ function GT.NpcAction()
         local e = ADB.Measure.UnitEntry("target")
         if e then ADB.Measure.SendEffects({ e }, dmg > 0 and 1 or 2, v) end
     end
+    ADB.npcPlayed[key], ADB.cbSelected = true, nil
+    ADB.CombatUI.Refresh()
+    ADB.Combat.CheckPlayersDone()
+end
+
+function GT.RefreshCombat()
+    local d = ADB.cbDM
+    if not (d and d.Rows and ADB.IsGM()) then return end
+    local phase = ADB.phase
+    for _, f in ipairs(d.Phases) do
+        local on = f.phase == phase
+        f.bg:SetColorTexture(unpack(on and f.color or GREY))
+        local c = on and 1 or 0.5
+        f.text:SetTextColor(c, c, c)
+    end
+    d.RosterTitle:SetText(ROSTER_TITLE[phase] or "")
+    local list = ADB.Combat.Roster(phase)
+    for i, b in ipairs(d.Rows) do
+        local r = list[i]
+        if r then
+            local sel = ADB.cbSelected == r.key
+            b.key = r.key
+            b.bg:SetColorTexture(sel and 0.35 or 0, sel and 0.28 or 0, sel and 0.05 or 0, sel and 0.9 or 0.35)
+            b.text:SetText((r.done and "|cff808080" or "|cff40ff40") .. r.name .. "|r")
+            b:Show()
+            b.del:SetShown(phase == "ENEMY_TURN")
+        else
+            b.key = nil
+            b:Hide()
+            b.del:Hide()
+        end
+    end
+    local acts = ADB.db.npcActions
+    for i, b in ipairs(d.ActRows) do
+        local a = acts[i]
+        b:SetShown(a ~= nil)
+        b.del:SetShown(a ~= nil)
+        if a then
+            b.text:SetText(format("%s %d  |  Préc. %s", a.value < 0 and "Soin" or "Dégâts", abs(a.value),
+                a.accuracy or "-"))
+        end
+    end
+end
+
+hooksecurefunc(ADB.CombatUI, "Refresh", function() GT.RefreshCombat() end)
+
+local function MakeRow(parent, y, onClick, onDel)
+    local b = CreateFrame("Button", nil, parent)
+    b:SetSize(242, 20)
+    b:SetPoint("TOPLEFT", 16, y)
+    b.bg = b:CreateTexture(nil, "BACKGROUND")
+    b.bg:SetAllPoints()
+    b.bg:SetColorTexture(0, 0, 0, 0.35)
+    b.text = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    b.text:SetPoint("LEFT", 6, 0)
+    b:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
+    b:SetScript("OnClick", onClick)
+    b.del = UI.Button(parent, "X", 262, y, 24, function() onDel(b) end)
+    b.del:SetHeight(20)
+    b:Hide()
+    b.del:Hide()
+    return b
+end
+
+function GT.SetupCombatPanel()
+    local cb = ADB.cbDM
+    cb:SetSize(300, 580)
+    cb:ClearAllPoints()
+    cb:SetPoint("TOP", UIParent, "TOP", 0, -100)
+
+    -- frise Joueurs > Alliés > Ennemis
+    cb.Phases = {}
+    local FR = { { "PLAYER_TURN", "Joueurs", { 0.15, 0.5, 0.15, 0.9 } },
+        { "ALLY_TURN",   "Alliés",  { 0.15, 0.35, 0.65, 0.9 } },
+        { "ENEMY_TURN",  "Ennemis", { 0.65, 0.2, 0.15, 0.9 } } }
+    for i, p in ipairs(FR) do
+        local f = CreateFrame("Frame", nil, cb)
+        f:SetSize(80, 18)
+        f:SetPoint("TOPLEFT", 16 + (i - 1) * 92, -32)
+        f.bg = f:CreateTexture(nil, "BACKGROUND")
+        f.bg:SetAllPoints()
+        f.text = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        f.text:SetPoint("CENTER")
+        f.text:SetText(p[2])
+        f.phase, f.color = p[1], p[3]
+        cb.Phases[i] = f
+        if i < 3 then
+            local a = cb:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            a:SetPoint("TOPLEFT", 16 + (i - 1) * 92 + 83, -35)
+            a:SetText(">")
+        end
+    end
+
+    cb.State:ClearAllPoints()
+    cb.State:SetPoint("TOPLEFT", 16, -56)
+    cb.State:SetWidth(268)
+    cb.Next:ClearAllPoints()
+    cb.Next:SetPoint("TOPLEFT", 16, -72)
+    cb.Next:SetWidth(134)
+    cb.End:ClearAllPoints()
+    cb.End:SetPoint("TOPLEFT", 154, -72)
+    cb.End:SetWidth(134)
+
+    -- combattants de la phase
+    cb.RosterTitle = UI.Label(cb, "", 16, -100, "GameFontNormalSmall")
+    cb.Rows = {}
+    for i = 1, ROWS do
+        cb.Rows[i] = MakeRow(cb, ROSTER_Y - (i - 1) * 20, function(self) GT.SelectActor(self.key) end,
+            function(b) GT.RemoveEnemy(b.key) end)
+    end
+    UI.Button(cb, "Ajouter la cible en ennemi", 16, ROSTER_Y - ROWS * 20 - 4, 268, GT.AddEnemy)
+
+    -- création d'action
+    UI.Label(cb, "Actions PNJ", 16, -306, "GameFontNormalSmall")
+    UI.Label(cb, "Préc.", 16, -329, "GameFontNormalSmall")
+    cb.Accuracy = UI.Input(cb, 56, -326, 40, 2, true)
+    UI.Label(cb, "Effet (-1000/1000, <0 soin)", 110, -329, "GameFontNormalSmall")
+    cb.Effect = UI.Input(cb, 238, -326, 46, 5)
+    UI.Label(cb, "Texte", 16, -353, "GameFontNormalSmall")
+    cb.Desc = UI.Input(cb, 56, -350, 228, 80)
+    UI.Button(cb, "Enregistrer l'action", 16, -376, 268, GT.SaveAction)
+
+    -- actions enregistrées : clic = lancer sur la cible avec le PNJ sélectionné
+    cb.ActRows = {}
+    for i = 1, MAX_ACTIONS do
+        local b = MakeRow(cb, ACTIONS_Y - (i - 1) * 20, function(self) GT.RunAction(self.index) end,
+            function(self) GT.RemoveAction(self.index) end)
+        b.index = i
+        b:SetScript("OnEnter", function(s)
+            local a = ADB.db.npcActions[s.index]
+            if a and a.desc ~= "" then
+                GameTooltip:SetOwner(s, "ANCHOR_RIGHT")
+                GameTooltip:AddLine(a.desc, 1, 1, 1, true)
+                GameTooltip:Show()
+            end
+        end)
+        b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        cb.ActRows[i] = b
+    end
+
+    -- validation des actions sauvegardées
+    local acts, src = {}, ADB.db.npcActions
+    for _, a in ipairs(type(src) == "table" and src or {}) do
+        local v = type(a) == "table" and floor(tonumber(a.value) or 0) or 0
+        if v ~= 0 and abs(v) <= 1000 and #acts < MAX_ACTIONS then
+            local acc = tonumber(a.accuracy)
+            acts[#acts + 1] = {
+                value = v,
+                accuracy = (acc and acc >= 1 and acc <= 99) and floor(acc) or nil,
+                desc = CleanName(a.desc or ""):sub(1, 80)
+            }
+        end
+    end
+    ADB.db.npcActions = acts
+    GT.RefreshCombat()
 end
 
 ------------------------------------------------------------------------------
@@ -234,6 +490,7 @@ function GT.ShowAltSheet(player)
     f:Show()
     UpdateAltSheet()
 end
+
 hooksecurefunc(ADB.UnitFrames, "RefreshNpcs", UpdateAltSheet)
 
 local function UpdateAltButton()
@@ -291,16 +548,7 @@ function GT.Setup()
     ADBNpcCreateFrame.AllyCheck = c
 
     -- "Action PNJ" panel in the GM combat window
-    local cb = ADB.cbDM
-    cb:SetHeight(262)
-    UI.Button(cb, "Action PNJ", 20, -118, 180, GT.NpcAction)
-    UI.Label(cb, "Attaquant", 16, -150, "GameFontNormalSmall")
-    cb.Attacker = UI.Input(cb, 88, -147, 116, 30)
-    UI.Label(cb, "Précision", 16, -176, "GameFontNormalSmall")
-    cb.Accuracy = UI.Input(cb, 88, -173, 50, 3, true)
-    UI.Label(cb, "Dégâts", 16, -202, "GameFontNormalSmall")
-    cb.Damage = UI.Input(cb, 88, -199, 50, 5)
-    UI.Label(cb, "Description", 16, -228, "GameFontNormalSmall")
-    cb.Desc = UI.Input(cb, 88, -225, 116, 80)
+    GT.SetupCombatPanel()
 end
+
 ADB.Events.Register("PLAYER_LOGIN", GT.Setup)

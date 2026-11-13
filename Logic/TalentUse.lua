@@ -35,7 +35,7 @@ function Talents.Execute(n, data, offTurn)
         return false
     end
 
-    if n.range > 0 then
+    if n.range > 0 and not ADB.altContext then
         if not UnitExists("target") then
             ADB.Print(format("Cible requise (portée : %dm).", n.range))
             return false
@@ -80,11 +80,23 @@ function Talents.Execute(n, data, offTurn)
     if failed then
         msg = msg .. " La compétence échoue."
     else
-        if hasEffect then
+        if hasEffect and not Talents.HasTag(n, "petheal") then
             local v = value * mult
-            local txt = ({ " La compétence inflige %d dégâts.", " La compétence a rendu %d points de vie.",
-                " La compétence a procuré %d de bouclier." })[n.effect]
-            msg = msg .. format(txt, v) .. (mult > 1 and " (effet doublé)" or "")
+            local luna = {}
+            if (n.effect == 2 or n.effect == 3) and ADB.Effects then
+                for _, e in ipairs(targets or {}) do
+                    local l = ADB.Effects.LunaText(e, n.effect, v)
+                    if l then luna[#luna + 1] = l end
+                end
+            end
+            if #luna > 0 then
+                msg = msg .. " " .. table.concat(luna, " ")
+            else
+                local txt = ({ " La compétence inflige %d dégâts.", " La compétence a rendu %d points de vie.",
+                    " La compétence a procuré %d de bouclier." })[n.effect]
+                msg = msg .. format(txt, v)
+            end
+            msg = msg .. (mult > 1 and " (effet doublé)" or "")
             if targets and #targets > 0 then ADB.Measure.SendEffects(targets, n.effect, v) end
         end
         if (n.buffId or 0) > 0 then ADB.Buffs.FromTalent(n, targets) end
@@ -97,8 +109,11 @@ function Talents.Execute(n, data, offTurn)
         end
     end
 
-    if data.force then msg = msg .. " (validé par le MJ)"
-    elseif offTurn then msg = msg .. " (hors-tour, validé par le MJ)" end
+    if data.force then
+        msg = msg .. " (validé par le MJ)"
+    elseif offTurn then
+        msg = msg .. " (hors-tour, validé par le MJ)"
+    end
     Announce(msg)
     ADB.Sync.AfterLocalChange()
     return true
@@ -171,15 +186,24 @@ end
 -- Popups (names are frozen: wrapped by Alt.lua)
 ------------------------------------------------------------------------------
 local function Dialog(text, onAccept, extra)
-    local d = { text = text, button1 = YES, button2 = NO, timeout = 0, whileDead = 1, hideOnEscape = 1,
-        preferredIndex = 3, OnAccept = onAccept }
+    local d = {
+        text = text,
+        button1 = YES,
+        button2 = NO,
+        timeout = 0,
+        whileDead = 1,
+        hideOnEscape = 1,
+        preferredIndex = 3,
+        OnAccept = onAccept
+    }
     for k, v in pairs(extra or {}) do d[k] = v end
     return d
 end
 
 StaticPopupDialogs["ADB_TAL_UTILISER"] = Dialog("Utiliser la compétence %s%s ?",
     function(_, data) Talents.AfterConfirm(data) end)
-StaticPopupDialogs["ADB_TAL_HORSTOUR"] = Dialog("Ce n'est pas votre tour (ou vous l'avez déjà passé).\nUtiliser quand même %s ?",
+StaticPopupDialogs["ADB_TAL_HORSTOUR"] = Dialog(
+    "Ce n'est pas votre tour (ou vous l'avez déjà passé).\nUtiliser quand même %s ?",
     function(_, data) Talents.OffTurn(data) end)
 StaticPopupDialogs["ADB_TAL_FORCE"] = Dialog("Action interdite. Confirmer et envoyer la demande au MJ ?",
     function(_, data) if data then Talents.RequestGmApproval(data, true) end end)
@@ -187,7 +211,8 @@ StaticPopupDialogs["ADB_TAL_VALIDATION"] = Dialog("%s demande à utiliser « %s 
     function(_, data)
         if data and ADB.IsGM() then Net.Send(format("HR;%s;%d;1", data.player, data.token)) end
     end, {
-        button1 = "Valider", button2 = "Refuser",
+        button1 = "Valider",
+        button2 = "Refuser",
         OnCancel = function(_, data, reason)
             if data and reason == "clicked" and ADB.IsGM() then
                 Net.Send(format("HR;%s;%d;0", data.player, data.token))

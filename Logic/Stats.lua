@@ -157,30 +157,7 @@ end
 ------------------------------------------------------------------------------
 -- HP / MP / shield
 ------------------------------------------------------------------------------
--- Debounced chat announcement of net HP/shield change for `key`.
-function Stats.TrackHp(key, label, delta, isShield)
-    if not delta or delta == 0 then return end
-    local e = ADB.hpAggregates[key]
-    if not e then
-        e = { net = 0, token = 0 }
-        ADB.hpAggregates[key] = e
-    end
-    e.net = e.net + delta
-    e.label, e.isShield = label, isShield
-    e.token = e.token + 1
-    local token = e.token
-    C_Timer.After(ADB.CHAT_DELAY, function()
-        if e.token ~= token then return end
-        ADB.hpAggregates[key] = nil
-        local net = e.net
-        if net == 0 then return end
-        if net > 0 then
-            ADB.Net.Announce(format(e.isShield and "%s gagne %d Bouclier." or "%s regagne %d PV.", e.label, net))
-        else
-            ADB.Net.Announce(format(e.isShield and "%s perd %d Bouclier." or "%s perd %d PV.", e.label, -net))
-        end
-    end)
-end
+function Stats.TrackHp() end
 
 -- Damage first depletes the shield. t = { hp, shield }. Returns the resulting HP.
 function Stats.Absorb(t, newHp)

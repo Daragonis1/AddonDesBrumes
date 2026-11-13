@@ -53,4 +53,5 @@ Logic\Forms.lua
 Logic\CombatFeedback.lua
 UI\TypingIndicator.lua
 UI\GmTools.lua
+UI\Settings.lua
 UI\Templates.xml

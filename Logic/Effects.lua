@@ -216,8 +216,11 @@ local function CheckCondition(cond, ctx)
         local negate = atom:sub(1, 1) == "!"
         if negate then atom = atom:sub(2) end
         local r = false
-        if atom == "pet" then r = TargetIsPet(ctx)
-        elseif atom == "self" then r = TargetIsSelf(ctx) end
+        if atom == "pet" then
+            r = TargetIsPet(ctx)
+        elseif atom == "self" then
+            r = TargetIsSelf(ctx)
+        end
         if (r and true or false) == negate then return false end
     end
     return true
@@ -242,11 +245,13 @@ local function Apply(ctx, who, effect, v)
     if #list == 0 or v <= 0 then return end
     local names = {}
     for _, e in ipairs(list) do
-        local doubled = Effects.LunaDoubles(e, effect)
+        local luna = Effects.LunaText(e, effect, v)
         ADB.Measure.SendEffects({ e }, effect, v)
-        names[#names + 1] = e.name .. (doubled and " (x2)" or "")
+        if luna then ctx.msgs[#ctx.msgs + 1] = luna else names[#names + 1] = e.name end
     end
-    ctx.msgs[#ctx.msgs + 1] = format("%s : %d %s.", table.concat(names, ", "), v, LABEL[effect])
+    if #names > 0 then
+        ctx.msgs[#ctx.msgs + 1] = format("%s : %d %s.", table.concat(names, ", "), v, LABEL[effect])
+    end
 end
 
 COMMANDS.damage = function(ctx, a) Apply(ctx, a[2], 1, Value(ctx, a[3], "damage")) end
@@ -255,11 +260,11 @@ COMMANDS.shield = function(ctx, a) Apply(ctx, a[2], 3, Value(ctx, a[3], "shield"
 
 COMMANDS.cd = function(ctx, a)
     if not (a[2] and ADB.db) then return end
-    local cd, reduce = ADB.db.talents.cooldowns, tonumber(a[3]) or 1
+    local cd, reduce, turnOnly = ADB.db.talents.cooldowns, tonumber(a[3]) or 1, a[4] == "t"
     for _, n in ipairs(Learned()) do
         local key = ADB.db.class .. ":" .. n.id
         local v = cd[key]
-        if v and Selector(a[2], n) then
+        if v and Selector(a[2], n) and (not turnOnly or ADB.TALENT.USE_LIMITS[n.limit].unit == "t") then
             local r = v - reduce
             cd[key] = r > 0 and r or nil
             ctx.msgs[#ctx.msgs + 1] = format("Le rechargement de %s est réduit de %d.", n.name, reduce)
@@ -293,6 +298,22 @@ COMMANDS.mana = function(ctx, a)
     ctx.msgs[#ctx.msgs + 1] = format("Regain de mana : +%d PM.", g)
 end
 
+COMMANDS.manaint = function(ctx, a)
+    local d = ADB.Stats.GetBlock(ADB.playerName)
+    COMMANDS.mana(ctx, { "mana", max(0, floor((tonumber(a[2]) or 0) * d.intellectMult + 0.5)) })
+end
+
+COMMANDS.petheal = function(ctx, a)
+    local t, pet = ctx.data.targets, ADB.Pets.GetPet()
+    local first = t and t[1]
+    local isPet = (pet and first and first.kind == "N"
+        and (first.name == pet.name or first.name == ADB.NPC.DisplayName(pet))) and true or false
+    local d = ADB.Stats.GetBlock(ADB.playerName)
+    local base = tonumber(isPet and a[3] or a[2]) or 0
+    local v = max(1, floor(base * d.agilityMult + 0.5)) * ctx.mult
+    Apply(ctx, first and "target" or "self", 2, v)
+end
+
 COMMANDS.buff = function(ctx, a)
     local id = tonumber(a[3])
     if not id then return end
@@ -322,7 +343,7 @@ end
 ------------------------------------------------------------------------------
 -- Hooks into the base engine
 ------------------------------------------------------------------------------
-local rollCtx   -- context of the Execute currently running (to capture its roll)
+local rollCtx -- context of the Execute currently running (to capture its roll)
 
 ADB.Wrap(ADB.Combat, "Roll", function(orig, ...)
     local r, label, color, mult, failed, critFail = orig(...)
@@ -334,8 +355,14 @@ ADB.Wrap(Talents, "Execute", function(orig, n, data, offTurn)
     data = data or {}
     local deficit = 0
     if n.mana > 0 and #Effects.Passives("manatopv") > 0 then deficit = max(0, n.mana - ADB.db.mp) end
-    local ctx = { n = n, data = data, msgs = {}, mult = 1, who = ADB.Stats.DisplayName(ADB.playerName),
-        base = BaseValue(n.desc) }
+    local ctx = {
+        n = n,
+        data = data,
+        msgs = {},
+        mult = 1,
+        who = ADB.Stats.DisplayName(ADB.playerName),
+        base = BaseValue(n.desc)
+    }
     rollCtx = ctx
     local ok = orig(n, data, offTurn)
     rollCtx = nil
@@ -380,7 +407,7 @@ ADB.Wrap(Talents, "SpecBonus", function(orig, n)
     return b
 end)
 
--- luna: heals/shields doubled on an ally (not self) under the HP threshold.
+-- luna: heals/shields doubled on an ally under the HP threshold.
 function Effects.LunaDoubles(e, effect)
     if effect ~= 2 and effect ~= 3 then return false end
     local p = Effects.Passives("luna")[1]
@@ -388,7 +415,6 @@ function Effects.LunaDoubles(e, effect)
     local threshold = tonumber(p[2]) or 50
     local hp, maxHp
     if e.kind == "P" then
-        if e.id == ADB.playerName then return false end
         local d = ADB.Stats.GetBlock(e.id)
         hp, maxHp = d and d.hp, d and d.maxHp
     else
@@ -406,11 +432,28 @@ ADB.Wrap(ADB.Measure, "SendEffects", function(orig, list, effect, value)
     end
 end)
 
+-- Texte d'annonce quand luna a doublé le soin/bouclier (nil sinon). À appeler AVANT SendEffects.
+function Effects.LunaText(e, effect, v)
+    if not Effects.LunaDoubles(e, effect) then return nil end
+    local d = v * 2
+    if effect == 2 then
+        return format("La lune-mère protège son enfant et renforce l'effet du sort, il rend %d point%s de vie.",
+            d, d > 1 and "s" or "")
+    end
+    return format("La lune-mère protège son enfant et renforce l'effet du sort, il reçoit %d de bouclier.", d)
+end
+
 -- Built-in root (id -2, bonus = number of turns).
 ADB.Wrap(ADB.Buffs, "Process", function(orig, id, bonus, mult100, key)
     if id == -2 then
-        return ADB.Buffs.Apply(key, { id = -2, left = Clamp(bonus, 1, 3), buffType = ADB.Buffs.TYPE.ROOT, value = 0,
-            icon = "Spell_Nature_Earthbind", name = "Immobilisation" })
+        return ADB.Buffs.Apply(key, {
+            id = -2,
+            left = Clamp(bonus, 1, 3),
+            buffType = ADB.Buffs.TYPE.ROOT,
+            value = 0,
+            icon = "Spell_Nature_Earthbind",
+            name = "Immobilisation"
+        })
     end
     return orig(id, bonus, mult100, key)
 end)
@@ -484,6 +527,26 @@ ADB.Combat.OnPhase(function(phase)
     if PetHitSource() then GainMana(g * count, "Hound") end
 end)
 
+-- cobraaspect: skills tagged "cobrashot" get +5 accuracy and grant +2 mana on a hit (success / critical success).
+local cobraActive, cobraFailed = false, false
+
+ADB.Wrap(ADB.Combat, "Roll", function(orig, accuracy, bonusAcc, bonusCrit, advantage)
+    if cobraActive then bonusAcc = (bonusAcc or 0) + 5 end
+    local r, label, color, mult, failed, critFail = orig(accuracy, bonusAcc, bonusCrit, advantage)
+    if cobraActive then cobraFailed = failed end
+    return r, label, color, mult, failed, critFail
+end)
+
+ADB.Wrap(Talents, "Execute", function(orig, n, data, offTurn)
+    cobraActive = (LearnedByTag("cobraaspect") and Talents.HasTag(n, "cobrashot")) and true or false
+    cobraFailed = false
+    local ok = orig(n, data, offTurn)
+    local active = cobraActive
+    cobraActive = false
+    if ok and active and not cobraFailed then GainMana(2, "Aspect du Cobra") end
+    return ok
+end)
+
 -- demonicbolt: Shadow Bolt is replaced on the bar during combat.
 ADB.Wrap(Talents, "ActiveSkills", function(orig)
     local r = orig()
@@ -493,4 +556,50 @@ ADB.Wrap(Talents, "ActiveSkills", function(orig)
         if not Talents.HasTag(n, "shadowbolt") then out[#out + 1] = n end
     end
     return out
+end)
+
+------------------------------------------------------------------------------
+-- avatarofvengeance: spawn serveur du PNJ, 1 attaque annoncée au début des 3 tours joueurs suivants, puis despawn.
+------------------------------------------------------------------------------
+local AVATAR_NPC_ID, AVATAR_NAME, AVATAR_TURNS = 5073847, "Avatar de la Vengeance", 3
+local avatarLeft = 0
+
+local avatarTarget = CreateFrame("Button", "ADBAvatarTarget", UIParent, "SecureActionButtonTemplate")
+avatarTarget:SetAttribute("type", "macro")
+avatarTarget:SetAttribute("macrotext", "/tar " .. AVATAR_NAME)
+
+local function AvatarCleanup()
+    avatarLeft = 0
+    avatarTarget:Click()
+    C_Timer.After(0.5, function() SendChatMessage(".npc del", "SAY") end)
+end
+
+local function AvatarAttack()
+    local d = ADB.Stats.GetBlock(ADB.playerName)
+    local who = ADB.Stats.DisplayName(ADB.playerName)
+    local r, label, _, mult, failed = ADB.Combat.Roll(70)
+    local v = max(1, floor(4 * d.intellectMult + 0.5)) * mult
+    local msg = format("L'avatar de la vengeance de %s attaque. Jet de précision : %d (%s). ", who, r, label)
+    if failed then
+        msg = msg .. "L'attaque a échoué."
+    else
+        msg = msg .. format("L'attaque a réussi, l'avatar inflige %d dégâts à l'ennemi le plus proche.", v)
+            .. (mult > 1 and " (effet doublé)" or "")
+    end
+    ADB.Net.Announce(msg)
+end
+
+COMMANDS.avatar = function()
+    if ADB.IsGM() or ADB.altContext or avatarLeft > 0 then return end
+    avatarLeft = AVATAR_TURNS
+    SendChatMessage(".npc spawn " .. AVATAR_NPC_ID, "SAY")
+end
+
+ADB.Combat.OnPhase(function(phase)
+    if ADB.IsGM() or avatarLeft <= 0 then return end
+    if phase == "IDLE" then return AvatarCleanup() end
+    if phase ~= "PLAYER_TURN" then return end
+    AvatarAttack()
+    avatarLeft = avatarLeft - 1
+    if avatarLeft == 0 then AvatarCleanup() end
 end)

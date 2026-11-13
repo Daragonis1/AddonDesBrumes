@@ -12,13 +12,22 @@ local function IsGood(b) return b.buffType == T.HEAL or b.buffType == T.WRATH or
 
 local function Describe(b)
     local t = b.buffType
-    if t == T.DAMAGE then return format("Inflige %d dégâts par tour.", b.value)
-    elseif t == T.HEAL then return format("Rend %d PV par tour.", b.value)
-    elseif t == T.ROOT then return "Immobilisation : bloque tout déplacement."
-    elseif t == T.STUN then return "Étourdissement : empêche toute action."
-    elseif t == T.SILENCE then return "Silence."
-    elseif t == T.ADVANTAGE then return "Avantage : jets de précision lancés 2 fois, le meilleur est gardé."
-    elseif t == T.DISADVANTAGE then return "Désavantage : jets de précision lancés 2 fois, le pire est gardé." end
+    if b.desc and b.desc ~= "" then return b.desc end
+    if t == T.DAMAGE then
+        return format("Inflige %d dégâts par tour.", b.value)
+    elseif t == T.HEAL then
+        return format("Rend %d PV par tour.", b.value)
+    elseif t == T.ROOT then
+        return "Immobilisation : bloque tout déplacement."
+    elseif t == T.STUN then
+        return "Étourdissement : empêche toute action."
+    elseif t == T.SILENCE then
+        return "Silence."
+    elseif t == T.ADVANTAGE then
+        return "Avantage : jets de précision lancés 2 fois, le meilleur est gardé."
+    elseif t == T.DISADVANTAGE then
+        return "Désavantage : jets de précision lancés 2 fois, le pire est gardé."
+    end
     return "+50% de dégâts, +5 de précision et +5% de coup critique (joueur et familier)."
 end
 
@@ -83,7 +92,9 @@ function BU.Refresh()
         UpdateRow(ADB.buffTarget, k and Buffs.active[k], 22, 8, 1)
     end
 end
+
 hooksecurefunc(ADB.UnitFrames, "RefreshTarget", function() BU.Refresh() end)
+hooksecurefunc(BU, "Refresh", function() ADB.ActionBar.Refresh() end)
 
 ------------------------------------------------------------------------------
 -- GM window
@@ -114,7 +125,7 @@ end
 
 local MAX_DEFS = 12
 local function CreateWindow()
-    local f = UI.BaseWindow("ADBBuffMJFrame", 380, 500, "Buffs / Debuffs (MJ)")
+    local f = UI.BaseWindow("ADBBuffMJFrame", 380, 526, "Buffs / Debuffs (MJ)")
     ADB.bufFrame = f
     f:SetPoint("CENTER", -300, 0)
     tinsert(UISpecialFrames, "ADBBuffMJFrame")
@@ -160,20 +171,23 @@ local function CreateWindow()
         f.editId = nil
         f.Name:SetText("")
         f.Tags:SetText("")
+        f.Desc:SetText("")
         BU.RefreshWindow()
     end
     f.Btn = UI.Button(f, "Créer", 150, -147, 100, function()
         if Buffs.CreateDef(f.Name:GetText(), f.icon, tonumber(f.Duration:GetText()) or 1, f.buffType,
-            tonumber(f.Value:GetText()) or 0, f.Tags:GetText(), f.editId) then
+                tonumber(f.Value:GetText()) or 0, f.Tags:GetText(), f.editId, f.Desc:GetText()) then
             Reset()
         end
     end)
     UI.Button(f, "Nouveau", 256, -147, 90, Reset)
-    UI.Label(f, "ID à saisir dans l'éditeur de talents pour lier un debuff.", 16, -200, "GameFontDisableSmall")
+    UI.Label(f, "Texte", 16, -202)
+    f.Desc = UI.Input(f, 70, -199, 280, 100)
+    UI.Label(f, "ID à saisir dans l'éditeur de talents pour lier un debuff.", 16, -226, "GameFontDisableSmall")
 
     f.rows = {}
     for i = 1, MAX_DEFS do
-        local y, r = -218 - (i - 1) * 22, {}
+        local y, r = -244 - (i - 1) * 22, {}
         r.ic = f:CreateTexture(nil, "ARTWORK")
         r.ic:SetSize(18, 18)
         r.ic:SetPoint("TOPLEFT", 16, y - 2)
@@ -188,6 +202,7 @@ local function CreateWindow()
             f.Name:SetText(d.name)
             f.Duration:SetText(d.duration)
             f.Value:SetText(d.value)
+            f.Desc:SetText(d.desc or "")
             f.Tags:SetText(table.concat(d.tags or {}, ","))
             BU.RefreshWindow()
         end)
@@ -211,6 +226,7 @@ function BU.Create()
     CreateWindow()
     UI.Button(ADBMJFrame, "Buffs / Debuffs", 155, -220, 125, function() Buffs.SlashCommand("") end)
 end
+
 ADB.Events.Register("PLAYER_LOGIN", BU.Create)
 
 ------------------------------------------------------------------------------

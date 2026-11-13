@@ -224,8 +224,12 @@ local function Prepare()
         end,
         __newindex = function(_, k, v) a[k] = v end,
     })
-    rawset(P, "talents", { trees = D.talents.trees, learned = a.learned, cooldowns = a.cooldowns,
-        extraClasses = a.extraClasses })
+    rawset(P, "talents", {
+        trees = D.talents.trees,
+        learned = a.learned,
+        cooldowns = a.cooldowns,
+        extraClasses = a.extraClasses
+    })
     if not ADB.altActionBar then
         local main = ADB.actionBar
         ADB.ActionBar.Create()
@@ -353,7 +357,8 @@ local function WrapWithFlag(tbl, names, flag)
     end
 end
 WrapWithFlag(ADB.TalentWindow, { "Draw", "OnNodeClick", "OnCellClick", "OnNodeEnter", "DeleteSelected" }, "viewTalents")
-WrapWithFlag(ADB.InventoryWindow, { "Refresh", "OnSlotClick", "SlotTooltip", "ClickDestroy", "ClickMoney" }, "viewInventory")
+WrapWithFlag(ADB.InventoryWindow, { "Refresh", "OnSlotClick", "SlotTooltip", "ClickDestroy", "ClickMoney" },
+    "viewInventory")
 
 ADB.Wrap(ADB.TalentWindow, "Toggle", function(orig)
     if not (ADB.talFrame and ADB.talFrame:IsShown()) then Alt.viewTalents, Talents.viewClass = false, nil end
@@ -374,12 +379,15 @@ end)
 
 hooksecurefunc(ADB.TalentWindow, "Create", function()
     local f = ADB.talFrame
-    f.BtnAlt = UI.Button(f, "Secondaire", 798, -660, 120, function()
+        f.BtnAlt = UI.Button(f, "Secondaire", f.PX + 126, f.btnY, 120, function()
         Alt.viewTalents, Talents.viewClass = not Alt.viewTalents, nil
         f.sel, f.mode = nil, nil
         ADB.TalentWindow.Draw()
     end)
+    local init = f.ClassDrop.initialize
+    f.ClassDrop.initialize = function(...) return Alt.WithContext(Alt.viewTalents, init, ...) end
 end)
+
 hooksecurefunc(ADB.TalentWindow, "UpdatePanel", function()
     local b = ADB.talFrame and ADB.talFrame.BtnAlt
     if b then
@@ -473,8 +481,8 @@ ADB.Wrap(ADB.TalentNet, "Receive", function(orig, cmd, sender, msg)
         if req and req.alt then
             return Alt.WithContext(true, orig, cmd, sender, (msg:gsub("^HR;[^;]*", "HR;" .. ADB.altChar.name)))
         end
-    elseif cmd ~= "TQ" and cmd ~= "HQ" and ADB.altChar.class ~= ADB.db.class then
-        Alt.WithContext(true, orig, cmd, sender, msg)   -- tree of the alt's class
+    elseif cmd ~= "TQ" and cmd ~= "HQ" then
+        Alt.WithContext(true, orig, cmd, sender, msg) -- tree of the alt's class
     end
     return orig(cmd, sender, msg)
 end)

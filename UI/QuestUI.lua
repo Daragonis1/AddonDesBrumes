@@ -95,15 +95,26 @@ local function GetBlock(f, i)
     return b
 end
 
+local FONT_BASE = { label = GameFontNormalSmall, title = GameFontNormal, desc = GameFontHighlightSmall }
+function QUI.StyleBlock(b)
+    local s = (ADB.db and ADB.db.settings and ADB.db.settings.questFont) or 1
+    for k, fo in pairs(FONT_BASE) do
+        local file, size, flags = fo:GetFont()
+        b[k]:SetFont(file, max(6, floor(size * s + 0.5)), flags)
+    end
+end
+
 function QUI.Draw()
     local f = ADB.qTracker
     if not f or not ADB.db or not ADB.playerName then return end
     local minimized = ADB.db.questsMinimized and true or false
-    f.Min:SetNormalTexture(minimized and "Interface\\Buttons\\UI-PlusButton-Up" or "Interface\\Buttons\\UI-MinusButton-Up")
+    f.Min:SetNormalTexture(minimized and "Interface\\Buttons\\UI-PlusButton-Up" or
+    "Interface\\Buttons\\UI-MinusButton-Up")
     local list = minimized and {} or Quests.List()
     local y = -32
     for i, it in ipairs(list) do
         local b = GetBlock(f, i)
+        QUI.StyleBlock(b)
         b.key = it.key
         local off = 0
         if it.owner then
@@ -165,7 +176,7 @@ local function CreateTracker()
     f.Background = f:CreateTexture(nil, "BACKGROUND")
     f.Background:SetPoint("TOPLEFT", f, "TOPLEFT", 0, 0)
     f.Background:SetSize(240, 30)
-    f.Background:SetAtlas("Objective-Header")   -- native ObjectiveTracker atlas
+    f.Background:SetAtlas("Objective-Header") -- native ObjectiveTracker atlas
     f.Title = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     f.Title:SetPoint("LEFT", f, "TOPLEFT", 12, -15)
     f.Title:SetText("Quêtes et Aspirations")

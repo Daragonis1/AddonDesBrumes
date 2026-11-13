@@ -42,7 +42,8 @@ function Transfer.Export()
         end
     end
     for _, d in ipairs(ADB.db.buffDefs or {}) do
-        out[#out + 1] = format("B;%d;%s;%s;%d;%d;%d", d.id, Esc(d.name), d.icon, d.duration, d.buffType, d.value)
+        out[#out + 1] = format("B;%d;%s;%s;%d;%d;%d;%s", d.id, Esc(d.name), d.icon, d.duration, d.buffType, d.value,
+            Esc(d.desc or ""))
     end
     return table.concat(out, "~")
 end
@@ -69,11 +70,30 @@ function Transfer.Parse(text)
                 local requires = {}
                 for s in (p[14] or ""):gmatch("%d+") do requires[#requires + 1] = tonumber(s) end
                 local n = Talents.ValidateNode({
-                    id = p[3], x = p[4], y = p[5], nodeType = p[6], stat = p[7], effect = p[8], element = p[9],
-                    mana = p[10], limit = p[11], reaction = (p[12] == "1"), bonusAction = (p[13] == "1"),
-                    requires = requires, icon = p[15], name = Decode(p[16] or ""), desc = Decode(p[17] or ""),
-                    hpCost = p[18], range = p[19], accuracy = p[20], aoe = p[21], isSpec = (p[22] == "1"),
-                    specTagX = p[23], specTagY = p[24], tags = p[25], buffId = p[26],
+                    id = p[3],
+                    x = p[4],
+                    y = p[5],
+                    nodeType = p[6],
+                    stat = p[7],
+                    effect = p[8],
+                    element = p[9],
+                    mana = p[10],
+                    limit = p[11],
+                    reaction = (p[12] == "1"),
+                    bonusAction = (p[13] == "1"),
+                    requires = requires,
+                    icon = p[15],
+                    name = Decode(p[16] or ""),
+                    desc = Decode(p[17] or ""),
+                    hpCost = p[18],
+                    range = p[19],
+                    accuracy = p[20],
+                    aoe = p[21],
+                    isSpec = (p[22] == "1"),
+                    specTagX = p[23],
+                    specTagY = p[24],
+                    tags = p[25],
+                    buffId = p[26],
                 })
                 if n and not tree.nodes[n.id] then
                     tree.nodes[n.id] = n
@@ -84,8 +104,17 @@ function Transfer.Parse(text)
         elseif kind == "C" then
             local tree = R.trees[Decode(p[2] or "")]
             if tree then
-                local b = Talents.ValidateColorBox({ id = p[3], x1 = p[4], y1 = p[5], x2 = p[6], y2 = p[7],
-                    r = p[8], g = p[9], b = p[10], a = p[11] })
+                local b = Talents.ValidateColorBox({
+                    id = p[3],
+                    x1 = p[4],
+                    y1 = p[5],
+                    x2 = p[6],
+                    y2 = p[7],
+                    r = p[8],
+                    g = p[9],
+                    b = p[10],
+                    a = p[11]
+                })
                 if b and not tree.colorBoxes[b.id] then
                     tree.colorBoxes[b.id] = b
                     tree.nextBoxId = max(tree.nextBoxId, b.id + 1)
@@ -93,8 +122,15 @@ function Transfer.Parse(text)
                 end
             end
         elseif kind == "B" then
-            R.buffs[#R.buffs + 1] = { id = p[2], name = Decode(p[3] or ""), icon = p[4],
-                duration = p[5], buffType = p[6], value = p[7] }
+            R.buffs[#R.buffs + 1] = {
+                id = p[2],
+                name = Decode(p[3] or ""),
+                icon = p[4],
+                duration = p[5],
+                buffType = p[6],
+                value = p[7],
+                desc = Decode(p[8] or "")
+            }
         end
     end
     if R.nodeCount == 0 and #R.buffs == 0 and R.boxCount == 0 then return nil end
@@ -106,10 +142,10 @@ local function ApplyImport(R)
     local T = ADB.db.talents
     T.trees, T.learned, T.cooldowns = R.trees, {}, {}
     ADB.db.buffDefs = R.buffs
-    ADB.Buffs.InitDB()   -- validates + recomputes next id
+    ADB.Buffs.InitDB() -- validates + recomputes next id
     Talents.Refresh()
     if ADB.IsGM() then
-        for ci in ipairs(ADB.CLASSES) do ADB.TalentNet.BroadcastClass(ci) end   -- resync players
+        for ci in ipairs(ADB.CLASSES) do ADB.TalentNet.BroadcastClass(ci) end -- resync players
     end
     if ADB.bufFrame then ADB.BuffUI.RefreshWindow() end
     ADB.Print(format("Configuration importée : %d talents.", R.nodeCount))
@@ -117,7 +153,12 @@ end
 
 StaticPopupDialogs["ADB_TAL_IMPORT"] = {
     text = "Importer %s talent(s) ?\nTous les arbres et buffs actuels seront REMPLACÉS.",
-    button1 = YES, button2 = NO, timeout = 0, whileDead = 1, hideOnEscape = 1, preferredIndex = 3,
+    button1 = YES,
+    button2 = NO,
+    timeout = 0,
+    whileDead = 1,
+    hideOnEscape = 1,
+    preferredIndex = 3,
     OnAccept = function(_, data) if data then ApplyImport(data) end end,
 }
 
@@ -166,7 +207,8 @@ end
 
 -- Button in the talent window (GM / solo only)
 hooksecurefunc(ADB.TalentWindow, "Create", function()
-    ADB.talFrame.BtnTransfer = UI.Button(ADB.talFrame, "Export / Import", 672, -660, 120, Transfer.ToggleWindow)
+    ADB.talFrame.BtnTransfer = UI.Button(ADB.talFrame, "Export / Import", ADB.talFrame.PX, ADB.talFrame.btnY, 120,
+    Transfer.ToggleWindow)
 end)
 hooksecurefunc(ADB.TalentWindow, "UpdatePanel", function()
     local b = ADB.talFrame and ADB.talFrame.BtnTransfer

@@ -14,15 +14,15 @@ ADB.Buffs = Buffs
 -- Behavioral type indices (what the code actually checks).
 -- NOTE: LABELS keeps the legacy order of the original dropdown, which is misaligned with these
 -- indices (label 5 = "Silence" but index 5 behaves as Bestial Wrath). Behavior preserved as-is.
-Buffs.TYPE = { DAMAGE = 1, HEAL = 2, ROOT = 3, STUN = 4, WRATH = 5, SILENCE = 6, ADVANTAGE = 7, DISADVANTAGE = 8 }
+Buffs.TYPE = { DAMAGE = 1, HEAL = 2, ROOT = 3, STUN = 4, SILENCE = 5, ADVANTAGE = 6, DISADVANTAGE = 7, WRATH = 8 }
 Buffs.LABELS = { "Dégâts", "Soins", "Immobilisation", "Étourdissement", "Silence", "Avantage", "Désavantage",
     "Courroux Bestial" }
 local T = Buffs.TYPE
 local MAX_DEFS, PER_TARGET = 12, 8
 
-Buffs.active = {}      -- [key] = { instance… }
-Buffs.tmp = {}         -- partial BF reception
-Buffs.tags = {}        -- [buffId] = tags (received from GM)
+Buffs.active = {} -- [key] = { instance… }
+Buffs.tmp = {}    -- partial BF reception
+Buffs.tags = {}   -- [buffId] = tags (received from GM)
 Buffs.tagBuffer = {}
 local tagSent = {}
 
@@ -36,11 +36,14 @@ function Buffs.InitDB()
             if type(d) == "table" and tonumber(d.id) and #defs < MAX_DEFS then
                 local id = floor(d.id)
                 defs[#defs + 1] = {
-                    id = id, name = CleanName(d.name):sub(1, 24), icon = ADB.SanitizeIcon(d.icon),
+                    id = id,
+                    name = CleanName(d.name):sub(1, 24),
+                    icon = ADB.SanitizeIcon(d.icon),
                     duration = Clamp(floor(tonumber(d.duration) or 1), 1, 20),
                     buffType = Clamp(floor(tonumber(d.buffType) or 1), 1, #Buffs.LABELS),
                     value = Clamp(floor(tonumber(d.value) or 0), 0, 999),
                     tags = Talents.SanitizeTags(d.tags),
+                    desc = CleanName(d.desc or ""):sub(1, 100),
                 }
                 maxId = max(maxId, id)
             end
@@ -59,7 +62,7 @@ function Buffs.GetDefByName(name)
     for _, d in ipairs(ADB.db.buffDefs) do if d.name:lower() == name then return d end end
 end
 
-function Buffs.CreateDef(name, icon, duration, buffType, value, tags, editId)
+function Buffs.CreateDef(name, icon, duration, buffType, value, tags, editId, desc)
     if not ADB.IsGM() then return false end
     name = CleanName(name):sub(1, 24)
     if name == "" then
@@ -79,6 +82,7 @@ function Buffs.CreateDef(name, icon, duration, buffType, value, tags, editId)
     end
     d.name, d.icon, d.duration, d.buffType, d.value = name, icon, Clamp(duration, 1, 20), buffType, Clamp(value, 0, 999)
     d.tags = Talents.SanitizeTags(tags)
+    d.desc = CleanName(desc or ""):sub(1, 100)
     Buffs.ResendTags(d.id)
     return true
 end
@@ -195,16 +199,23 @@ end
 -- Application / replication
 ------------------------------------------------------------------------------
 local function Entry(b)
-    return format("%d,%d,%d,%d,%s,%s", b.id, b.left, b.buffType, b.value, b.icon, ADB.Escape(b.name, "[%%;,]"))
+    return format("%d,%d,%d,%d,%s,%s,%s", b.id, b.left, b.buffType, b.value, b.icon, ADB.Escape(b.name, "[%%;,]"),
+        ADB.Escape(b.desc or "", "[%%;,]"))
 end
 
 local function ReadEntry(e)
-    local id, left, bt, value, icon, name = strsplit(",", e)
+    local id, left, bt, value, icon, name, desc = strsplit(",", e)
     id, left, bt, value = tonumber(id), tonumber(left), tonumber(bt), tonumber(value)
     if not (id and left and bt and value and bt >= 1 and bt <= #Buffs.LABELS and icon) then return nil end
-    return { id = floor(id), left = Clamp(floor(left), 1, 99), buffType = floor(bt),
-        value = Clamp(floor(value), 0, 999), icon = ADB.SanitizeIcon(icon),
-        name = CleanName(Decode(name or "")):sub(1, 40) }
+    return {
+        id = floor(id),
+        left = Clamp(floor(left), 1, 99),
+        buffType = floor(bt),
+        value = Clamp(floor(value), 0, 999),
+        icon = ADB.SanitizeIcon(icon),
+        name = CleanName(Decode(name or "")):sub(1, 40),
+        desc = CleanName(Decode(desc or "")):sub(1, 100)
+    }
 end
 
 function Buffs.Broadcast(key)
@@ -258,8 +269,15 @@ end
 function Buffs.ApplyDef(def, key, bonus, mult)
     local value = def.value
     if def.buffType <= 2 then value = Clamp(floor((def.value + (bonus or 0)) * (mult or 1) + 0.5), 0, 999) end
-    return Buffs.Apply(key, { id = def.id, left = def.duration, buffType = def.buffType, value = value,
-        icon = def.icon, name = def.name })
+    return Buffs.Apply(key, {
+        id = def.id,
+        left = def.duration,
+        buffType = def.buffType,
+        value = value,
+        icon = def.icon,
+        name = def.name,
+        desc = def.desc
+    })
 end
 
 -- id < 0 : built-in effect (-1 stun; bonus = number of turns). GM applies; players ask the GM.
@@ -274,8 +292,14 @@ end
 
 function Buffs.Process(id, bonus, mult100, key)
     if id == -1 then
-        return Buffs.Apply(key, { id = -1, left = Clamp(bonus, 1, 3), buffType = T.STUN, value = 0,
-            icon = "Spell_Frost_Stun", name = "Étourdissement" })
+        return Buffs.Apply(key, {
+            id = -1,
+            left = Clamp(bonus, 1, 3),
+            buffType = T.STUN,
+            value = 0,
+            icon = "Spell_Frost_Stun",
+            name = "Étourdissement"
+        })
     end
     local def = Buffs.GetDef(id)
     if def then Buffs.ApplyDef(def, key, Clamp(bonus, 0, 5), Clamp(mult100, 0, 3000) / 100) end
@@ -294,7 +318,13 @@ end
 
 function Buffs.FromTalent(n, targets)
     local mult, bonus = Talents.Multiplier(n), Talents.SpecBonus(n)
-    if not targets or #targets == 0 then targets = { { kind = "P", id = ADB.playerName } } end
+    if Talents.HasTag(n, "bestialwrath") then
+        targets = { { kind = "P", id = ADB.playerName } }
+        local pet = ADB.Pets.GetPet()
+        if pet then targets[2] = { kind = "N", id = tostring(pet.id), name = pet.name } end
+    elseif Talents.HasTag(n, "avatarofvengeance") or not targets or #targets == 0 then
+        targets = { { kind = "P", id = ADB.playerName } }
+    end
     for _, e in ipairs(targets) do Buffs.Request(n.buffId, bonus, mult, Buffs.KeyFromEntry(e)) end
 end
 
@@ -399,8 +429,11 @@ ADB.Combat.OnPhase(function(phase)
         wipe(tagSent)
         ADB.BuffUI.Refresh()
     elseif ADB.IsGM() then
-        if prev == "PLAYER_TURN" then Resolve(true)
-        elseif prev == "ENEMY_TURN" then Resolve(false) end
+        if prev == "PLAYER_TURN" then
+            Resolve(true)
+        elseif prev == "ENEMY_TURN" then
+            Resolve(false)
+        end
     end
 end)
 
@@ -456,4 +489,5 @@ function Buffs.SlashCommand(rest)
     end
     Buffs.ForceApply(def.id)
 end
+
 ADB.Slash.Register({ "buff", "debuff" }, Buffs.SlashCommand)

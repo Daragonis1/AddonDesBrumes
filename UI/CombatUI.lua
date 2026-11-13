@@ -36,11 +36,17 @@ end
 ------------------------------------------------------------------------------
 local TURN_NAME = { STARTING = "Préparation", PLAYER_TURN = "Joueurs", ALLY_TURN = "Alliés", ENEMY_TURN = "Ennemis" }
 local TURN_COLOR = {
-    STARTING = { 1, 0.82, 0.3 }, PLAYER_TURN = { 0.4, 1, 0.4 },
-    ALLY_TURN = { 0.4, 0.7, 1 }, ENEMY_TURN = { 1, 0.4, 0.3 },
+    STARTING = { 1, 0.82, 0.3 },
+    PLAYER_TURN = { 0.4, 1, 0.4 },
+    ALLY_TURN = { 0.4, 0.7, 1 },
+    ENEMY_TURN = { 1, 0.4, 0.3 },
 }
-local GM_BUTTON_TEXT = { PLAYER_TURN = "Forcer la fin du tour", ALLY_TURN = "Fin du Tour Allié",
-    ENEMY_TURN = "Fin du Tour Ennemi" }
+local GM_BUTTON_TEXT = {
+    STARTING = "Passer la préparation",
+    PLAYER_TURN = "Forcer la fin du tour",
+    ALLY_TURN = "Fin du Tour Allié",
+    ENEMY_TURN = "Fin du Tour Ennemi"
+}
 
 local function UpdateTurnIndicator()
     local t = ADB.turnIndicator
@@ -157,9 +163,30 @@ function CUI.Create()
     ADB.cbJ = p
     p:SetSize(150, 44)
     p:SetFrameStrata("MEDIUM")
-    p:SetPoint("BOTTOMRIGHT", UIParent, "BOTTOMRIGHT", -12, 110)
+    p:SetMovable(true)
+    p:SetClampedToScreen(true)
+    p:EnableMouse(true)
+    p:RegisterForDrag("LeftButton")
+    local function DragStart() p:StartMoving() end
+    local function DragStop()
+        p:StopMovingOrSizing()
+        local pt, _, rp, x, y = p:GetPoint(1)
+        ADB.db.cbPos = { pt, rp, math.floor(x + 0.5), math.floor(y + 0.5) }
+    end
+    p:SetScript("OnDragStart", DragStart)
+    p:SetScript("OnDragStop", DragStop)
+    local pos = ADB.db.cbPos
+    if type(pos) == "table" and type(pos[1]) == "string" and type(pos[2]) == "string"
+        and tonumber(pos[3]) and tonumber(pos[4]) then
+        p:SetPoint(pos[1], UIParent, pos[2], pos[3], pos[4])
+    else
+        p:SetPoint("BOTTOMRIGHT", UIParent, "BOTTOMRIGHT", -12, 110)
+    end
     UI.ApplyBackdrop(p)
     p.Btn = UI.Button(p, "Fin de Tour", 12, -11, 126, function() ADB.Combat.PlayerEndTurn() end)
+    p.Btn:RegisterForDrag("LeftButton")
+    p.Btn:SetScript("OnDragStart", DragStart)
+    p.Btn:SetScript("OnDragStop", DragStop)
     p:Hide()
 
     local g = UI.BaseWindow("ADBPVFrame", 240, 130, "PV / Bouclier")
