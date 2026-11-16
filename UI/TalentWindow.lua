@@ -81,6 +81,19 @@ function TW.OnNodeEnter(b)
             G:AddLine("Prérequis : " .. r.name, ok and 0.3 or 1, ok and 1 or 0.3, 0.3)
         end
     end
+    if (n.specReq or 0) > 0 then
+        local box = Talents.SpecBoxOf(a, n)
+        if box then
+            local pts = own and Talents.SpecPoints(Talents.viewClass)[box.id] or 0
+            local ok = pts >= n.specReq
+            G:AddLine(format("Prérequis : %d points de spécialisation (%d)", n.specReq, pts), ok and 0.3 or 1,
+                ok and 1 or 0.3, 0.3)
+            if n.specReq >= 6 and not n.isSpec then
+                local okS = own and Talents.HasSpecTalent(Talents.viewClass, a, box)
+                G:AddLine("Prérequis : Spécialisation", okS and 0.3 or 1, okS and 1 or 0.3, 0.3)
+            end
+        end
+    end
     G:AddLine(" ")
     if f.edition then
         G:AddLine("Clic : sélectionner", 0.6, 0.6, 0.6)
@@ -252,6 +265,12 @@ function TW.OnNodeClick(b, button)
                 end
             end
             learned[n.id] = nil
+            local bad = Talents.SpecBroken(Talents.viewClass)
+            if bad then
+                learned[n.id] = true
+                UIErrorsFrame:AddMessage("« " .. bad.name .. " » nécessite ces points de spécialisation.", 1, 0.3, 0.3)
+                return
+            end
         end
     end
     Talents.Refresh()
@@ -303,7 +322,7 @@ function TW.ModifyBox(changes, id)
     id = id or f.selBox
     local b = a and a.colorBoxes and a.colorBoxes[id]
     if not b then return end
-    local t = { id = b.id, x1 = b.x1, y1 = b.y1, x2 = b.x2, y2 = b.y2, r = b.r, g = b.g, b = b.b, a = b.a }
+    local t = { id = b.id, x1 = b.x1, y1 = b.y1, x2 = b.x2, y2 = b.y2, r = b.r, g = b.g, b = b.b, a = b.a, spec = b.spec }
     for k, v in pairs(changes) do t[k] = v end
     a.colorBoxes[id] = Talents.ValidateColorBox(t)
     ADB.TalentNet.ScheduleColorBox(Talents.ClassIndex(Talents.viewClass), id)
@@ -380,9 +399,13 @@ local function UpdateZonePanel()
     if f.selBox and not b then f.selBox = nil end
     Z.Info:SetText(b and format("Zone #%d : cases (%d,%d) à (%d,%d).", b.id, b.x1, b.y1, b.x2, b.y2)
         or "Aucune zone sélectionnée. Cliquez dans une zone existante pour la sélectionner, ou créez-en une.")
-    for _, w in ipairs({ Z.BtnRedefine, Z.BtnDelete, Z.Swatch, Z.Hex, Z.Alpha, Z.LC, Z.LH, Z.LA }) do w:SetShown(b ~= nil) end
+    for _, w in ipairs({ Z.BtnRedefine, Z.BtnDelete, Z.Swatch, Z.Hex, Z.Alpha, Z.LC, Z.LH, Z.LA, Z.Spec }) do
+        w:SetShown(
+            b ~= nil)
+    end
     if b then
         Z.SwatchTex:SetColorTexture(b.r / 255, b.g / 255, b.b / 255, 1)
+        Z.Spec:SetChecked(b.spec)
         if not Z.Hex:HasFocus() then Z.Hex:SetText(format("%02X%02X%02X", b.r, b.g, b.b)) end
         if not Z.Alpha:HasFocus() then Z.Alpha:SetText(b.a) end
     end
@@ -505,6 +528,7 @@ function TW.UpdatePanel()
     if not n then return end
     if not C.Name:HasFocus() then C.Name:SetText(n.name) end
     C.Icon:SetTexture(ADB.IconTexture(n.icon))
+    if not C.SpecReq:HasFocus() then C.SpecReq:SetText((n.specReq or 0) > 0 and n.specReq or "") end
     C.DType.Update(); C.DStat.Update(); C.DEffect.Update(); C.DElement.Update()
     C.Active:SetShown(n.nodeType == 1)
     C.Area:SetShown(n.nodeType == 1)
@@ -543,6 +567,7 @@ function TW.Draw()
     local a = Talents.GetTree(class)
     local nodes = a and a.nodes or {}
     local learned = own and Talents.Learned(class) or {}
+    local sp = own and Talents.SpecPoints(class) or {}
     if f.sel and not nodes[f.sel] then f.sel = nil end
 
     local list, occupied = {}, {}
@@ -572,8 +597,19 @@ function TW.Draw()
         t:SetPoint("BOTTOMRIGHT", f.canvas, "TOPLEFT", b.x2 * TALENT.CELL, -b.y2 * TALENT.CELL)
         t:SetColorTexture(b.r / 255, b.g / 255, b.b / 255, b.a / 100)
         t:Show()
+        local s = f.boxTxt[i]
+        if not s then
+            s = f.boxHost:CreateFontString(nil, "OVERLAY")
+            s:SetFont(STANDARD_TEXT_FONT, 20, "THICKOUTLINE")
+            s:SetTextColor(1, 0.82, 0)
+            f.boxTxt[i] = s
+        end
+        s:ClearAllPoints()
+        s:SetPoint("TOPLEFT", f.canvas, "TOPLEFT", (b.x1 - 1) * TALENT.CELL + 6, -(b.y1 - 1) * TALENT.CELL - 4)
+        s:SetText(b.spec and (own and tostring(sp[b.id] or 0) or (ed and "S" or "")) or "")
     end
     for i = #boxes + 1, #f.boxTex do f.boxTex[i]:Hide() end
+    for i = #boxes + 1, #f.boxTxt do f.boxTxt[i]:SetText("") end
     do
         local bs = f.boxSel
         local sb = a and a.colorBoxes and a.colorBoxes[f.selBox or 0]
@@ -703,7 +739,7 @@ function TW.Create()
     ADB.talFrame = f
     f.PX, f.btnY = PX, -(H - 30)
     f:SetPoint("CENTER", 0, 0)
-    f.btns, f.lines, f.byId, f.boxTex = {}, {}, {}, {}
+    f.btns, f.lines, f.byId, f.boxTex, f.boxTxt = {}, {}, {}, {}, {}
     tinsert(UISpecialFrames, "ADBTalentFrame")
 
     local sf = CreateFrame("ScrollFrame", "ADBTalScroll", f, "UIPanelScrollFrameTemplate")
@@ -713,13 +749,18 @@ function TW.Create()
     c:SetSize(cw, TALENT.ROWS * TALENT.CELL)
     sf:SetScrollChild(c)
     f.canvas = c
+    f.boxHost = CreateFrame("Frame", nil, c)
+    f.boxHost:SetAllPoints()
+    f.boxHost:SetFrameLevel(c:GetFrameLevel() + 3)
     local bg = c:CreateTexture(nil, "BACKGROUND", nil, -8)
     bg:SetAllPoints()
-    bg:SetColorTexture(0.09, 0.065, 0.04, 1)
+    bg:SetColorTexture(0.55, 0.42, 0.25, 1)
     local tile = c:CreateTexture(nil, "BACKGROUND", nil, -7)
     tile:SetAllPoints()
-    tile:SetTexture("Interface\\DialogFrame\\UI-DialogBox-Background", "REPEAT", "REPEAT")
-    tile:SetVertexColor(1, 0.8, 0.55, 0.45)
+    tile:SetTexture("Interface\\FrameGeneral\\UI-Background-Marble", "REPEAT", "REPEAT")
+    tile:SetHorizTile(true)
+    tile:SetVertTile(true)
+    tile:SetVertexColor(1, 0.82, 0.55, 0.9)
     local bd = CreateFrame("Frame", nil, f, "BackdropTemplate")
     bd:SetPoint("TOPLEFT", sf, -6, 6)
     bd:SetPoint("BOTTOMRIGHT", sf, 6, -6)
@@ -788,7 +829,11 @@ function TW.Create()
         ADB.Icons.Open(function(v) Modify("icon", ADB.SanitizeIcon(v)) end)
     end)
     C.Icon = ib.icon
-    UI.Label(C, "(cliquer pour choisir)", 110, -40, "GameFontDisableSmall")
+    UI.Label(C, "Pts spé.", 112, -38)
+    C.SpecReq = UI.Input(C, 172, -35, 40, 2, true)
+    C.SpecReq:SetScript("OnTextChanged", function(self, user)
+        if user then Modify("specReq", Clamp(floor(tonumber(self:GetText()) or 0), 0, 99)) end
+    end)
 
     UI.Label(C, "Type", 0, -72)
     C.DType = Dropdown("ADBTalTypDrop", C, 48, -66, 130, function() return TALENT.NODE_TYPES end,
@@ -943,6 +988,10 @@ function TW.Create()
     Z.Alpha:SetScript("OnTextChanged", function(self, user)
         if user and tonumber(self:GetText()) then TW.ModifyBox({ a = tonumber(self:GetText()) }) end
     end)
+    Z.Spec = CreateFrame("CheckButton", "ADBZoneSpecCheck", Z, "UICheckButtonTemplate")
+    Z.Spec:SetPoint("TOPLEFT", -4, -224)
+    _G["ADBZoneSpecCheckText"]:SetText("Zone de spécialisation")
+    Z.Spec:SetScript("OnClick", function(self) TW.ModifyBox({ spec = self:GetChecked() and true or false }) end)
 
     f:SetScript("OnShow", function() TW.Draw() end)
 end

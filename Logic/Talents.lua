@@ -84,6 +84,7 @@ local function ApplyExtras(n, t)
     else
         n.isSpec, n.specTagX, n.specTagY = false, "", ""
     end
+    n.specReq = Clamp(floor(tonumber(t.specReq) or 0), 0, 99)
 end
 Talents.ApplyExtras = ApplyExtras
 
@@ -145,7 +146,9 @@ function Talents.ValidateColorBox(t)
         r = Clamp(floor(tonumber(t.r) or 80), 0, 255),
         g = Clamp(floor(tonumber(t.g) or 80), 0, 255),
         b = Clamp(floor(tonumber(t.b) or 80), 0, 255),
-        a = Clamp(floor(tonumber(t.a) or 30), 5, 100)
+        a = Clamp(floor(tonumber(t.a) or 30), 5, 100),
+        a = Clamp(floor(tonumber(t.a) or 30), 5, 100),
+        spec = (t.spec == true)
     }
 end
 
@@ -442,6 +445,52 @@ function Talents.TagRequirements(n)
     return res
 end
 
+-- ColorBox de spécialisation contenant le talent (la plus petite), ou nil.
+function Talents.SpecBoxOf(tree, n)
+    local best, area
+    for _, b in pairs(tree and tree.colorBoxes or {}) do
+        if b.spec and n.x >= b.x1 and n.x <= b.x2 and n.y >= b.y1 and n.y <= b.y2 then
+            local s = (b.x2 - b.x1 + 1) * (b.y2 - b.y1 + 1)
+            if not best or s < area or (s == area and b.id > best.id) then best, area = b, s end
+        end
+    end
+    return best
+end
+
+-- { [boxId] = points } des talents appris de la classe.
+function Talents.SpecPoints(class)
+    local res, tree = {}, Talents.GetTree(class)
+    if not tree then return res end
+    for id in pairs(Learned(class)) do
+        local n = tree.nodes[id]
+        local b = n and Talents.SpecBoxOf(tree, n)
+        if b then res[b.id] = (res[b.id] or 0) + 1 end
+    end
+    return res
+end
+
+-- Un talent "Spécialisation" (isSpec) appris dans la ColorBox `box` ?
+function Talents.HasSpecTalent(class, tree, box)
+    for id in pairs(Learned(class)) do
+        local m = tree.nodes[id]
+        if m and m.isSpec and Talents.SpecBoxOf(tree, m) == box then return true end
+    end
+    return false
+end
+
+-- Premier talent appris dont le prérequis de spécialisation n'est plus rempli, sinon nil.
+function Talents.SpecBroken(class)
+    local tree, pts = Talents.GetTree(class), Talents.SpecPoints(class)
+    for id in pairs(Learned(class)) do
+        local n = tree and tree.nodes[id]
+        local b = n and (n.specReq or 0) > 0 and Talents.SpecBoxOf(tree, n)
+        if b then
+            if (pts[b.id] or 0) - 1 < n.specReq then return n end
+            if n.specReq >= 6 and not n.isSpec and not Talents.HasSpecTalent(class, tree, b) then return n end
+        end
+    end
+end
+
 function Talents.PrerequisitesMet(n, class)
     class = ViewClass(class)
     local tree, ap = Talents.GetTree(class), Learned(class)
@@ -450,6 +499,13 @@ function Talents.PrerequisitesMet(n, class)
     end
     for _, r in ipairs(Talents.TagRequirements(n)) do
         if not r.ok then return false end
+    end
+    if (n.specReq or 0) > 0 then
+        local b = Talents.SpecBoxOf(tree, n)
+        if b then
+            if (Talents.SpecPoints(class)[b.id] or 0) < n.specReq then return false end
+            if n.specReq >= 6 and not n.isSpec and not Talents.HasSpecTalent(class, tree, b) then return false end
+        end
     end
     return true
 end

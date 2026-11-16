@@ -10,7 +10,7 @@ local Encode, Decode, CleanName = ADB.Encode, ADB.Decode, ADB.CleanName
 
 local TalentNet = {}
 ADB.TalentNet = TalentNet
-TalentNet.requested = {}   -- [class] = true once TQ sent to the current GM
+TalentNet.requested = {} -- [class] = true once TQ sent to the current GM
 
 local COMMANDS = { "TN", "TD", "TF", "TG", "TX", "TS", "TE", "TQ", "HQ", "HR", "TC", "TK" }
 
@@ -25,15 +25,16 @@ local function NodeMessages(ci, n)
     for i, s in ipairs(chunks) do
         msgs[#msgs + 1] = format("TD;%d;%d;%d;%d;%s", ci, n.id, i, #chunks, Encode(s))
     end
-    msgs[#msgs + 1] = format("TF;%d;%d;%d;%d;%d;%d;%d;%s;%s;%s;%d", ci, n.id, n.hpCost, n.range,
-        n.accuracy, n.aoe, n.isSpec and 1 or 0, n.specTagX, n.specTagY, "", n.buffId or 0)
+    msgs[#msgs + 1] = format("TF;%d;%d;%d;%d;%d;%d;%d;%s;%s;%s;%d;%d", ci, n.id, n.hpCost, n.range,
+        n.accuracy, n.aoe, n.isSpec and 1 or 0, n.specTagX, n.specTagY, "", n.buffId or 0, n.specReq or 0)
     local tags = ADB.SplitUtf8(table.concat(n.tags, ","), 120)
     for i, s in ipairs(tags) do msgs[#msgs + 1] = format("TG;%d;%d;%d;%d;%s", ci, n.id, i, #tags, s) end
     return msgs
 end
 
 function TalentNet.ColorBoxMessage(ci, b)
-    return format("TC;%d;%d;%d;%d;%d;%d;%d;%d;%d;%d", ci, b.id, b.x1, b.y1, b.x2, b.y2, b.r, b.g, b.b, b.a)
+    return format("TC;%d;%d;%d;%d;%d;%d;%d;%d;%d;%d;%d", ci, b.id, b.x1, b.y1, b.x2, b.y2, b.r, b.g, b.b, b.a,
+        b.spec and 1 or 0)
 end
 
 local function SortedKeys(t)
@@ -200,8 +201,18 @@ function TalentNet.Receive(cmd, sender, message)
         for id, n in pairs(tree.nodes) do if n.stale then tree.nodes[id] = nil end end
         for id, b in pairs(tree.colorBoxes or {}) do if b.stale then tree.colorBoxes[id] = nil end end
     elseif cmd == "TC" then
-        local b = Talents.ValidateColorBox({ id = p[3], x1 = p[4], y1 = p[5], x2 = p[6], y2 = p[7],
-            r = p[8], g = p[9], b = p[10], a = p[11] })
+        local b = Talents.ValidateColorBox({
+            id = p[3],
+            x1 = p[4],
+            y1 = p[5],
+            x2 = p[6],
+            y2 = p[7],
+            r = p[8],
+            g = p[9],
+            b = p[10],
+            a = p[11],
+            spec = (p[12] == "1")
+        })
         if b then
             tree.colorBoxes = tree.colorBoxes or {}
             tree.colorBoxes[b.id] = b
@@ -215,15 +226,27 @@ function TalentNet.Receive(cmd, sender, message)
         local requires = {}
         for s in (p[14] or ""):gmatch("%d+") do requires[#requires + 1] = tonumber(s) end
         local n = Talents.ValidateNode({
-            id = p[3], x = p[4], y = p[5], nodeType = p[6], stat = p[7], effect = p[8], element = p[9],
-            mana = p[10], limit = p[11], reaction = (p[12] == "1"), bonusAction = (p[13] == "1"),
-            requires = requires, icon = p[15], name = Decode(p[16] or ""), desc = "",
+            id = p[3],
+            x = p[4],
+            y = p[5],
+            nodeType = p[6],
+            stat = p[7],
+            effect = p[8],
+            element = p[9],
+            mana = p[10],
+            limit = p[11],
+            reaction = (p[12] == "1"),
+            bonusAction = (p[13] == "1"),
+            requires = requires,
+            icon = p[15],
+            name = Decode(p[16] or ""),
+            desc = "",
         })
         if n then
             tree.nodes[n.id] = n
             tree.nextId = max(tree.nextId, n.id + 1)
         end
-        elseif cmd == "TD" then
+    elseif cmd == "TD" then
         local n = tree.nodes[nodeId]
         local idx, total = tonumber(p[4]), tonumber(p[5])
         if n and idx and total and total >= 1 and total <= 40 and idx >= 1 and idx <= total then
@@ -244,8 +267,18 @@ function TalentNet.Receive(cmd, sender, message)
     elseif cmd == "TF" then
         local n = tree.nodes[nodeId]
         if n then
-            Talents.ApplyExtras(n, { hpCost = p[4], range = p[5], accuracy = p[6], aoe = p[7],
-                isSpec = (p[8] == "1"), specTagX = p[9], specTagY = p[10], tags = p[11], buffId = p[12] })
+            Talents.ApplyExtras(n, {
+                hpCost = p[4],
+                range = p[5],
+                accuracy = p[6],
+                aoe = p[7],
+                isSpec = (p[8] == "1"),
+                specTagX = p[9],
+                specTagY = p[10],
+                tags = p[11],
+                buffId = p[12], 
+                specReq = p[13]
+            })
         end
     elseif cmd == "TG" then
         local n = tree.nodes[nodeId]

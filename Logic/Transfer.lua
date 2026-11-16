@@ -27,8 +27,8 @@ function Transfer.Export()
         table.sort(boxIds)
         for _, id in ipairs(boxIds) do
             local b = tree.colorBoxes[id]
-            out[#out + 1] = format("C;%s;%d;%d;%d;%d;%d;%d;%d;%d;%d", Esc(class), b.id, b.x1, b.y1, b.x2, b.y2,
-                b.r, b.g, b.b, b.a)
+            out[#out + 1] = format("C;%s;%d;%d;%d;%d;%d;%d;%d;%d;%d;%d", Esc(class), b.id, b.x1, b.y1, b.x2, b.y2,
+                b.r, b.g, b.b, b.a, b.spec and 1 or 0)
         end
         local ids = {}
         for id in pairs(tree.nodes) do ids[#ids + 1] = id end
@@ -38,7 +38,7 @@ function Transfer.Export()
             out[#out + 1] = table.concat({ "N", Esc(class), n.id, n.x, n.y, n.nodeType, n.stat, n.effect, n.element,
                 n.mana, n.limit, n.reaction and 1 or 0, n.bonusAction and 1 or 0, table.concat(n.requires, ","), n.icon,
                 Esc(n.name), Esc(n.desc), n.hpCost, n.range, n.accuracy, n.aoe, n.isSpec and 1 or 0,
-                n.specTagX, n.specTagY, table.concat(n.tags, ","), n.buffId or 0 }, ";")
+                n.specTagX, n.specTagY, table.concat(n.tags, ","), n.buffId or 0, n.specReq or 0 }, ";")
         end
     end
     for _, d in ipairs(ADB.db.buffDefs or {}) do
@@ -94,6 +94,7 @@ function Transfer.Parse(text)
                     specTagY = p[24],
                     tags = p[25],
                     buffId = p[26],
+                    specReq = p[27],
                 })
                 if n and not tree.nodes[n.id] then
                     tree.nodes[n.id] = n
@@ -113,7 +114,8 @@ function Transfer.Parse(text)
                     r = p[8],
                     g = p[9],
                     b = p[10],
-                    a = p[11]
+                    a = p[11],
+                    spec = (p[12] == "1")
                 })
                 if b and not tree.colorBoxes[b.id] then
                     tree.colorBoxes[b.id] = b
@@ -208,7 +210,7 @@ end
 -- Button in the talent window (GM / solo only)
 hooksecurefunc(ADB.TalentWindow, "Create", function()
     ADB.talFrame.BtnTransfer = UI.Button(ADB.talFrame, "Export / Import", ADB.talFrame.PX, ADB.talFrame.btnY, 120,
-    Transfer.ToggleWindow)
+        Transfer.ToggleWindow)
 end)
 hooksecurefunc(ADB.TalentWindow, "UpdatePanel", function()
     local b = ADB.talFrame and ADB.talFrame.BtnTransfer
