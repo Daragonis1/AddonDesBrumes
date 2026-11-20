@@ -20,6 +20,7 @@ ADB.DB_DEFAULTS = {
     equipment = {},
     talents = { trees = {}, learned = {}, cooldowns = {} },
     settings = { questFont = 1, playerScale = 1, petScale = 1, groupScale = 1, targetScale = 1 },
+    aspirationPoints = 0,
 }
 
 ------------------------------------------------------------------------------
@@ -171,6 +172,7 @@ function ADB.InitDB()
     db.level = ADB.Stats.LevelForXP(db.xp)
     db.copper = Clamp(floor(tonumber(db.copper) or 0), 0, ADB.COPPER_MAX)
     db.shield = Clamp(floor(tonumber(db.shield) or 0), 0, ADB.SHIELD_MAX)
+    db.aspirationPoints = max(0, floor(tonumber(db.aspirationPoints) or 0))
 
     local inv = {}
     if type(db.inventory) == "table" then

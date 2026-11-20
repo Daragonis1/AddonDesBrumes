@@ -14,11 +14,25 @@ ADB.Buffs = Buffs
 -- Behavioral type indices (what the code actually checks).
 -- NOTE: LABELS keeps the legacy order of the original dropdown, which is misaligned with these
 -- indices (label 5 = "Silence" but index 5 behaves as Bestial Wrath). Behavior preserved as-is.
-Buffs.TYPE = { DAMAGE = 1, HEAL = 2, ROOT = 3, STUN = 4, SILENCE = 5, ADVANTAGE = 6, DISADVANTAGE = 7, WRATH = 8 }
+Buffs.TYPE = {
+    DAMAGE = 1,
+    HEAL = 2,
+    ROOT = 3,
+    STUN = 4,
+    SILENCE = 5,
+    ADVANTAGE = 6,
+    DISADVANTAGE = 7,
+    WRATH = 8,
+    BOSS = 9,
+    RESIST = 10
+}
 Buffs.LABELS = { "Dégâts", "Soins", "Immobilisation", "Étourdissement", "Silence", "Avantage", "Désavantage",
-    "Courroux Bestial" }
+    "Courroux Bestial", "Boss", "Résistance" }
+Buffs.BOSS_ID = -3 -- effet intégré, toujours appliqué aux boss (ne réserve plus l'ID 20)
 local T = Buffs.TYPE
-local MAX_DEFS, PER_TARGET = 12, 8
+local MAX_DEFS, PER_TARGET = 999, 8
+Buffs.MAX_DEFS = MAX_DEFS
+local IMMUNE = { [T.ROOT] = true, [T.STUN] = true, [T.SILENCE] = true, [T.DISADVANTAGE] = true }
 
 Buffs.active = {} -- [key] = { instance… }
 Buffs.tmp = {}    -- partial BF reception
@@ -30,11 +44,12 @@ local tagSent = {}
 -- Definitions (GM)
 ------------------------------------------------------------------------------
 function Buffs.InitDB()
-    local db, defs, maxId = ADB.db, {}, 0
+    local db, defs, seen = ADB.db, {}, {}
     if type(db.buffDefs) == "table" then
         for _, d in ipairs(db.buffDefs) do
-            if type(d) == "table" and tonumber(d.id) and #defs < MAX_DEFS then
-                local id = floor(d.id)
+            local id = type(d) == "table" and tonumber(d.id) and floor(d.id)
+            if id and id >= 1 and id <= 9999 and not seen[id] and #defs < MAX_DEFS then
+                seen[id] = true
                 defs[#defs + 1] = {
                     id = id,
                     name = CleanName(d.name):sub(1, 24),
@@ -45,12 +60,12 @@ function Buffs.InitDB()
                     tags = Talents.SanitizeTags(d.tags),
                     desc = CleanName(d.desc or ""):sub(1, 100),
                 }
-                maxId = max(maxId, id)
             end
         end
     end
+    table.sort(defs, function(a, b) return a.id < b.id end)
     db.buffDefs = defs
-    if type(db.nextBuffId) ~= "number" or db.nextBuffId <= maxId then db.nextBuffId = maxId + 1 end
+    db.nextBuffId = nil
 end
 
 function Buffs.GetDef(id)
@@ -75,14 +90,17 @@ function Buffs.CreateDef(name, icon, duration, buffType, value, tags, editId, de
             ADB.Print("Maximum " .. MAX_DEFS .. " buffs/debuffs.")
             return false
         end
-        local id = ADB.db.nextBuffId
-        ADB.db.nextBuffId = id + 1
+        local used = {}
+        for _, x in ipairs(ADB.db.buffDefs) do used[x.id] = true end
+        local id = 1
+        while used[id] do id = id + 1 end
         d = { id = id }
         table.insert(ADB.db.buffDefs, d)
     end
     d.name, d.icon, d.duration, d.buffType, d.value = name, icon, Clamp(duration, 1, 20), buffType, Clamp(value, 0, 999)
     d.tags = Talents.SanitizeTags(tags)
     d.desc = CleanName(desc or ""):sub(1, 100)
+    table.sort(ADB.db.buffDefs, function(a, b) return a.id < b.id end)
     Buffs.ResendTags(d.id)
     return true
 end
@@ -94,6 +112,7 @@ function Buffs.DeleteDef(id)
             break
         end
     end
+    tagSent[id] = nil
     if ADB.bufFrame and ADB.bufFrame.editId == id then ADB.bufFrame.editId = nil end
     ADB.BuffUI.RefreshWindow()
 end
@@ -195,6 +214,15 @@ function Buffs.GetBonus(key)
     return acc, crit, dmg, (adv and not dis) and 1 or ((dis and not adv) and -1 or 0)
 end
 
+-- Target resisting the attack's element (buff value = element index): disadvantage (cancels an advantage).
+function Buffs.ResistAdvantage(adv, entry, element)
+    local key = entry and Buffs.KeyFromEntry(entry)
+    for _, b in ipairs(key and Buffs.active[key] or {}) do
+        if b.buffType == T.RESIST and b.value == element then return (adv == 1) and 0 or -1 end
+    end
+    return adv
+end
+
 ------------------------------------------------------------------------------
 -- Application / replication
 ------------------------------------------------------------------------------
@@ -247,6 +275,10 @@ function Buffs.Apply(key, inst)
         list = {}
         Buffs.active[key] = list
     end
+    if IMMUNE[inst.buffType] and Buffs.Has(key, T.BOSS) then
+        ADB.Net.Announce(format("%s est immunisé contre %s.", Buffs.KeyName(key), inst.name))
+        return false
+    end
     local placed
     for i, b in ipairs(list) do
         if b.id == inst.id then
@@ -258,6 +290,11 @@ function Buffs.Apply(key, inst)
     if not placed then
         if #list >= PER_TARGET then return false end
         list[#list + 1] = inst
+    end
+    if inst.buffType == T.BOSS then
+        for i = #list, 1, -1 do
+            if IMMUNE[list[i].buffType] then table.remove(list, i) end
+        end
     end
     ADB.Net.Announce(format("%s est affecté par %s (%d tour%s).", Buffs.KeyName(key), inst.name,
         inst.left, inst.left > 1 and "s" or ""))
@@ -291,7 +328,7 @@ function Buffs.Request(id, bonus, mult, key)
 end
 
 function Buffs.Process(id, bonus, mult100, key)
-    if id == -1 then
+    if id == Buffs.BOSS_ID then
         return Buffs.Apply(key, {
             id = -1,
             left = Clamp(bonus, 1, 3),
@@ -299,6 +336,17 @@ function Buffs.Process(id, bonus, mult100, key)
             value = 0,
             icon = "Spell_Frost_Stun",
             name = "Étourdissement"
+        })
+    end
+    if id == Buffs.BOSS_ID and not Buffs.GetDef(id) then
+        return Buffs.Apply(key, {
+            id = id,
+            left = 99,
+            buffType = T.BOSS,
+            value = 0,
+            icon = "Spell_Shadow_DeathCoil",
+            name = "Boss",
+            desc = ""
         })
     end
     local def = Buffs.GetDef(id)
@@ -407,8 +455,10 @@ local function Resolve(allies)
             for i = #list, 1, -1 do
                 local b = list[i]
                 if b.buffType <= 2 then ResolveEffect(key, b) end
-                b.left = b.left - 1
-                if b.left <= 0 then table.remove(list, i) end
+                if b.buffType ~= T.BOSS then
+                    b.left = b.left - 1
+                    if b.left <= 0 then table.remove(list, i) end
+                end
             end
             if #list == 0 then Buffs.active[key] = nil end
             changed[key] = true

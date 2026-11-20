@@ -324,6 +324,15 @@ end
 
 COMMANDS.say = function(ctx, a) ctx.msgs[#ctx.msgs + 1] = a[2] or "" end
 
+COMMANDS.nikratak = function(ctx)
+    SendChatMessage(".Gob spawn 13333", "SAY")
+    local d = ADB.Stats.GetBlock(ADB.playerName)
+    local g = max(1, floor(8 * d.intellectMult + 0.5))
+    ADB.db.mp = min(d.maxMp, ADB.db.mp + g)
+    ADB.Stats.ApplyValue(ADB.playerName, "hp", d.hp + g, true)
+    ctx.msgs[#ctx.msgs + 1] = format("%s récupère %d PV et %d PM.", ctx.who, g, g)
+end
+
 local function Run(rules, ctx)
     local hit = not (ctx.roll and ctx.roll.failed)
     for _, l in ipairs(rules) do

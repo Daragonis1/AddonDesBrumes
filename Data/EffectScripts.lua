@@ -42,3 +42,6 @@ hit: petheal 4 7
 E.DefineTag("avatarofvengeance", [[
 use: avatar
 ]])
+E.DefineTag("Nikratak", [[
+hit: nikratak
+]])

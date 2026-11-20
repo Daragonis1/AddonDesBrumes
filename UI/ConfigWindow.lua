@@ -53,9 +53,13 @@ function CW.Refresh()
     UIDropDownMenu_SetText(f.ClassDrop, ADB.db.class)
 
     local role
-    if not IsInGroup() then role = "Hors groupe"
-    elseif ADB.IsGM() then role = "|cffffd100MJ (chef de groupe)|r"
-    else role = "Joueur" end
+    if not IsInGroup() then
+        role = "Hors groupe"
+    elseif ADB.IsGM() then
+        role = "|cffffd100MJ (chef de groupe)|r"
+    else
+        role = "Joueur"
+    end
 
     local xp
     if d.level >= ADB.MAX_LEVEL then
@@ -67,12 +71,12 @@ function CW.Refresh()
     f.Derived:SetText(format(
         "|cffffd100Rôle|r : %s\n\n" ..
         "|cffffd100Niveau|r : %d    |cffffd100XP|r : %s\n\n" ..
-        "|cffffd100Or|r : %s\n\n" ..
+        "|cffffd100Or|r : %s    |cffffd100Aspiration|r : %d\n\n" ..
         "Force : %d   Agilité : %d   Intelligence : %d\n\n" ..
         "|cffff5050PV max|r : %d    (actuels : %d)\n" ..
         "|cff5080ffPM max|r : %d    (actuels : %d)\n\n" ..
         "Mult. Force : x%.2f\nMult. Agilité : x%.2f\nMult. Intelligence : x%.2f",
-        role, d.level, xp, ADB.FormatMoney(d.copper), d.strength, d.agility, d.intellect,
+        role, d.level, xp, ADB.FormatMoney(d.copper), ADB.db.aspirationPoints or 0, d.strength, d.agility, d.intellect,
         d.maxHp, d.hp, d.maxMp, d.mp, d.strengthMult, d.agilityMult, d.intellectMult))
 
     -- Buttons stacked from the bottom: shared first, then GM-only or player-only

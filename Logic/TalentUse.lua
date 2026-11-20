@@ -66,6 +66,7 @@ function Talents.Execute(n, data, offTurn)
 
     local _, value = Talents.FormatDescription(n.desc, true, Talents.Multiplier(n), Talents.SpecBonus(n))
     local bonusAcc, bonusCrit, bonusDmg, advantage = ADB.Buffs.GetBonus("P:" .. ADB.playerName)
+    advantage = ADB.Buffs.ResistAdvantage(advantage, targets and targets[1], n.element)
     if value and n.effect == 1 then value = floor(value * bonusDmg + 0.5) end
     local hasEffect = value and n.effect <= 3
     local mult, failed = 1, false

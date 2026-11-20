@@ -49,6 +49,8 @@ UI\QuestUI.lua
 Logic\Inspect.lua
 Logic\Gifts.lua
 Logic\Alt.lua
+Logic\Story.lua
+Logic\Boss.lua
 Logic\Forms.lua
 Logic\CombatFeedback.lua
 UI\TypingIndicator.lua

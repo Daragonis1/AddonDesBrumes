@@ -502,7 +502,7 @@ function TW.UpdatePanel()
     local ed = f.edition and true or false
     f.BtnEdit:SetShown(Talents.CanEdit())
     f.BtnEdit:SetText(ed and "Quitter l'éditeur" or "Mode éditeur")
-    f.BtnReset:SetShown(not ed)
+    f.BtnReset:SetShown(not ed and ADB.IsGM())
     f.BtnZone:SetShown(ed)
     f.BtnZone:SetText(f.zoneMode and "Mode talents" or "Zones (ColorBox)")
     local help = f.mode == "link" and "|cffffd100Cliquez le talent PRÉREQUIS.|r"
@@ -711,7 +711,7 @@ end
 ------------------------------------------------------------------------------
 -- Creation
 ------------------------------------------------------------------------------
-local LIMIT_ORDER = { 1, 6, 2, 3, 4, 5 } -- display order of USE_LIMITS
+LIMIT_ORDER = { 1, 6, 2, 3, 4, 5, 7 }
 
 StaticPopupDialogs["ADB_TAL_RESET"] = {
     text = "Réinitialiser tous vos talents appris ?",

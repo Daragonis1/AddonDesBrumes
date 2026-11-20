@@ -122,10 +122,11 @@ function Alt.RefreshSheet()
         local d = ADB.Stats.GetBlock(ADB.playerName)
         local xp = d.level >= ADB.MAX_LEVEL and (d.xp .. " (max)") or (d.xp .. " / " .. ADB.XP_THRESHOLDS[d.level + 1])
         f.Body:SetText(format("|cff9d6bff%s|r\n\n|cffffd100Race|r : %s\n|cffffd100Classe|r : %s\n" ..
-            "|cffffd100Niveau|r : %d    |cffffd100XP|r : %s\n|cffffd100Or|r : %s\n\n" ..
+            "|cffffd100Niveau|r : %d    |cffffd100XP|r : %s\n|cffffd100Or|r : %s   |cffffd100Aspiration|r : %d\n\n" ..
             "Force : %d   Agilité : %d   Intelligence : %d\n\n|cffff5050PV|r : %d / %d\n|cff5080ffPM|r : %d / %d\n\n" ..
             "Mult. Force : x%.2f\nMult. Agilité : x%.2f\nMult. Intelligence : x%.2f\n\nPoints de talent restants : %d",
             ADB.Stats.DisplayName(ADB.playerName), d.race, d.class, d.level, xp, ADB.FormatMoney(d.copper),
+            ADB.db.aspirationPoints or 0,
             d.strength, d.agility, d.intellect, d.hp, d.maxHp, d.mp, d.maxMp,
             d.strengthMult, d.agilityMult, d.intellectMult, Talents.PointsLeft()))
         if f.Level and not f.Level:HasFocus() then f.Level:SetText(d.level) end
@@ -190,6 +191,7 @@ local function Validate(s)
     s.class = (ADB.CLASS_BY_NAME[s.class] and not ADB.IsSpecialClass(s.class)) and s.class or "Guerrier"
     s.name, s.rpName = CleanName(s.name):sub(1, 30), CleanName(s.rpName or ""):sub(1, 40)
     s.xp = max(0, floor(tonumber(s.xp) or 0))
+    s.aspirationPoints = max(0, floor(tonumber(s.aspirationPoints) or 0))
     s.level = ADB.Stats.LevelForXP(s.xp)
     s.base = type(s.base) == "table" and s.base or { strength = 0, agility = 0, intellect = 0 }
     s.copper = Clamp(floor(tonumber(s.copper) or 0), 0, ADB.COPPER_MAX)
@@ -379,7 +381,7 @@ end)
 
 hooksecurefunc(ADB.TalentWindow, "Create", function()
     local f = ADB.talFrame
-        f.BtnAlt = UI.Button(f, "Secondaire", f.PX + 126, f.btnY, 120, function()
+    f.BtnAlt = UI.Button(f, "Secondaire", f.PX + 126, f.btnY, 120, function()
         Alt.viewTalents, Talents.viewClass = not Alt.viewTalents, nil
         f.sel, f.mode = nil, nil
         ADB.TalentWindow.Draw()

@@ -167,7 +167,7 @@ function GT.SelectActor(key)
     ADB.CombatUI.Refresh()
 end
 
-function GT.AddEnemy()
+function GT.AddEnemy(boss)
     if not ADB.IsGM() then return end
     if ADB.phase == "IDLE" then
         ADB.Print("Aucun combat en cours.")
@@ -187,9 +187,20 @@ function GT.AddEnemy()
         ADB.Print("Cette cible est déjà un allié.")
         return
     end
+    local label = p and ADB.NPC.DisplayName(p) or name
+    local function MakeBoss(e)
+        e.boss = true
+        ADB.Boss.Add(guid, label)
+        ADB.Buffs.Request(ADB.Buffs.BOSS_ID, 0, 1, ADB.Buffs.KeyFromEntry({ kind = "N", id = guid, name = name }))
+    end
     for _, e in ipairs(ADB.combatEnemies) do
         if e.guid == guid then
-            ADB.Print("Cette cible est déjà un ennemi du combat.")
+            if boss and not e.boss then
+                MakeBoss(e)
+                ADB.Print(label .. " est désormais un Boss.")
+            else
+                ADB.Print("Cette cible est déjà un ennemi du combat.")
+            end
             return
         end
     end
@@ -197,9 +208,11 @@ function GT.AddEnemy()
         ADB.Print("Nombre maximum d'ennemis atteint.")
         return
     end
-    local label = p and ADB.NPC.DisplayName(p) or name
-    ADB.combatEnemies[#ADB.combatEnemies + 1] = { key = "E:" .. guid, guid = guid, name = label }
-    ADB.Print(label .. " ajouté aux ennemis.")
+    local e = { key = "E:" .. guid, guid = guid, name = label }
+    ADB.combatEnemies[#ADB.combatEnemies + 1] = e
+    if boss then MakeBoss(e) end
+    SendChatMessage(".npc emote 375 repeat", "SAY")
+    ADB.Print(label .. (boss and " ajouté aux ennemis (Boss)." or " ajouté aux ennemis."))
     ADB.CombatUI.Refresh()
 end
 
@@ -207,6 +220,7 @@ function GT.RemoveEnemy(key)
     if not ADB.IsGM() then return end
     for i, e in ipairs(ADB.combatEnemies) do
         if e.key == key then
+            if e.boss then ADB.Boss.Remove(e.guid) end
             tremove(ADB.combatEnemies, i)
             ADB.npcPlayed[key] = nil
             if ADB.cbSelected == key then ADB.cbSelected = nil end
@@ -221,8 +235,9 @@ function GT.SaveAction()
     if not ADB.IsGM() then return end
     local d = ADB.cbDM
     local value = floor(tonumber(d.Effect:GetText()) or 0)
-    if value == 0 or abs(value) > 1000 then
-        ADB.Print("Effet invalide (-1000 à 1000, négatif = soin).")
+    local bid = floor(tonumber(d.BuffId:GetText()) or 0)
+    if abs(value) > 1000 or (value == 0 and bid < 1) then
+        ADB.Print("Effet invalide (-1000 à 1000, négatif = soin ; 0 = buff seul, Buff ID requis).")
         return
     end
     local list = ADB.db.npcActions
@@ -234,6 +249,7 @@ function GT.SaveAction()
     list[#list + 1] = {
         value = value,
         accuracy = (acc and acc >= 1 and acc <= 99) and floor(acc) or nil,
+        buff = bid > 0 and Clamp(bid, 1, 9999) or nil,
         desc = CleanName(d.Desc:GetText()):sub(1, 80)
     }
     d.Desc:SetText("")
@@ -263,7 +279,9 @@ function GT.RunAction(i)
     end
     local target = ADB.Talents.TargetName()
     local dmg = a.value
-    local head = actor.name .. " " .. (a.desc ~= "" and a.desc or ((dmg < 0 and "soigne " or "attaque ") .. target))
+    local head = actor.name ..
+        " " ..
+        (a.desc ~= "" and a.desc or ((dmg < 0 and "soigne " or (dmg == 0 and "lance un maléfice sur " or "attaque ")) .. target))
     local rollText, ok, mult = nil, true, 1
     if a.accuracy then
         local r = math.random(1, 100)
@@ -285,13 +303,18 @@ function GT.RunAction(i)
         outcome = dmg < 0 and (target .. " ne reçoit aucun soin.") or (target .. " est indemne.")
     elseif dmg > 0 then
         outcome = format("%s subit %d point%s de dégâts.", target, v, v > 1 and "s" or "")
+    elseif dmg == 0 then
+        outcome = target .. " est frappé par un maléfice."
     else
         outcome = format("%s récupère %d point%s de vie.", target, v, v > 1 and "s" or "")
     end
     ADB.Net.Announce(head .. (rollText and (rollText .. " ") or ", ") .. outcome)
     if ok then
         local e = ADB.Measure.UnitEntry("target")
-        if e then ADB.Measure.SendEffects({ e }, dmg > 0 and 1 or 2, v) end
+        if e then
+            if dmg ~= 0 then ADB.Measure.SendEffects({ e }, dmg > 0 and 1 or 2, v) end
+            if a.buff then ADB.Buffs.Request(a.buff, 0, 1, ADB.Buffs.KeyFromEntry(e)) end
+        end
     end
     ADB.npcPlayed[key], ADB.cbSelected = true, nil
     ADB.CombatUI.Refresh()
@@ -331,8 +354,9 @@ function GT.RefreshCombat()
         b:SetShown(a ~= nil)
         b.del:SetShown(a ~= nil)
         if a then
-            b.text:SetText(format("%s %d  |  Préc. %s", a.value < 0 and "Soin" or "Dégâts", abs(a.value),
-                a.accuracy or "-"))
+            b.text:SetText(format("%s %d  |  Préc. %s%s",
+                a.value < 0 and "Soin" or (a.value == 0 and "Maléfice" or "Dégâts"), abs(a.value),
+                a.accuracy or "-", a.buff and (" | Buff #" .. a.buff) or ""))
         end
     end
 end
@@ -403,10 +427,13 @@ function GT.SetupCombatPanel()
         cb.Rows[i] = MakeRow(cb, ROSTER_Y - (i - 1) * 20, function(self) GT.SelectActor(self.key) end,
             function(b) GT.RemoveEnemy(b.key) end)
     end
-    UI.Button(cb, "Ajouter la cible en ennemi", 16, ROSTER_Y - ROWS * 20 - 4, 268, GT.AddEnemy)
+    UI.Button(cb, "Cible : ennemi", 16, ROSTER_Y - ROWS * 20 - 4, 134, function() GT.AddEnemy() end)
+    UI.Button(cb, "Cible : Boss", 154, ROSTER_Y - ROWS * 20 - 4, 134, function() GT.AddEnemy(true) end)
 
     -- création d'action
     UI.Label(cb, "Actions PNJ", 16, -306, "GameFontNormalSmall")
+    UI.Label(cb, "Buff ID", 130, -309, "GameFontNormalSmall")
+    cb.BuffId = UI.Input(cb, 190, -304, 46, 4, true)
     UI.Label(cb, "Préc.", 16, -329, "GameFontNormalSmall")
     cb.Accuracy = UI.Input(cb, 56, -326, 40, 2, true)
     UI.Label(cb, "Effet (-1000/1000, <0 soin)", 110, -329, "GameFontNormalSmall")
@@ -437,11 +464,13 @@ function GT.SetupCombatPanel()
     local acts, src = {}, ADB.db.npcActions
     for _, a in ipairs(type(src) == "table" and src or {}) do
         local v = type(a) == "table" and floor(tonumber(a.value) or 0) or 0
-        if v ~= 0 and abs(v) <= 1000 and #acts < MAX_ACTIONS then
+        local hasBuff = type(a) == "table" and (tonumber(a.buff) or 0) > 0
+        if (v ~= 0 or hasBuff) and abs(v) <= 1000 and #acts < MAX_ACTIONS then
             local acc = tonumber(a.accuracy)
             acts[#acts + 1] = {
                 value = v,
                 accuracy = (acc and acc >= 1 and acc <= 99) and floor(acc) or nil,
+                buff = (tonumber(a.buff) or 0) > 0 and Clamp(floor(a.buff), 1, 9999) or nil,
                 desc = CleanName(a.desc or ""):sub(1, 80)
             }
         end
@@ -514,7 +543,9 @@ function GT.Setup()
     mj.RestButton:ClearAllPoints()
     mj.RestButton:SetPoint("BOTTOMLEFT", 20, 16)
     mj.RestButton:SetWidth(125)
-    UI.Button(mj, "Combat", 155, -130, 125, function() ADB.Combat.Start() end)
+    UI.Button(mj, "Combat", 155, -130, 125, function()
+        if ADB.phase == "IDLE" then ADB.Combat.Start() else ADB.CombatUI.Refresh() end
+    end)
     UI.Button(mj, "Quêtes", 20, -130, 125, function() ADB.QuestUI.OpenEditor() end)
 
     -- loot launcher

@@ -129,7 +129,7 @@ function AB.Refresh()
         btn.tex:SetDesaturated(not ok)
         btn.dark:SetShown(not ok)
         local cd = T.GetCooldown(n)
-        btn.cd:SetText(cd > 0 and (cd .. (ADB.TALENT.USE_LIMITS[n.limit].unit == "t" and "t" or "r")) or "")
+        btn.cd:SetText(cd > 0 and (cd .. (({ t = "t", s = "T" })[ADB.TALENT.USE_LIMITS[n.limit].unit] or "r")) or "")
         btn.flag:SetText((n.reaction and "R" or "") .. (n.bonusAction and "B" or ""))
         btn:Show()
     end

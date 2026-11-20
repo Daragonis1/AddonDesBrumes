@@ -39,6 +39,7 @@ local TALENT           = {
         { label = "1/3 repos",  duration = 3,  unit = "r" },
         { label = "Illimité",   duration = 0,  unit = "i" },
         { label = "2/repos",    duration = 2,  unit = "r", charges = 2 },
+        { label = "1/Trame",    duration = 1,  unit = "s" },
     },
     TAG_REQUIREMENTS = { dreadsteed = "Pierre d'âme de Destrier" },
 }
@@ -78,7 +79,7 @@ local function ApplyExtras(n, t)
     n.tags = Talents.SanitizeTags(t.tags)
     n.isSpec, n.specTagX, n.specTagY = (t.isSpec == true), Talents.SanitizeTag(t.specTagX),
         Talents.SanitizeTag(t.specTagY)
-    n.buffId = (n.nodeType == 1) and Clamp(floor(tonumber(t.buffId) or 0), 0, 9999) or 0
+    n.buffId = Clamp(floor(tonumber(t.buffId) or 0), 0, 9999)
     if n.nodeType == 2 then
         n.hpCost, n.range, n.accuracy, n.aoe = -1, -1, -1, -1
     else
@@ -111,7 +112,7 @@ function Talents.ValidateNode(t)
         nodeType = Clamp(floor(tonumber(t.nodeType) or 1), 1, 2),
         stat = Clamp(floor(tonumber(t.stat) or 1), 1, #TALENT.STATS),
         effect = Clamp(floor(tonumber(t.effect) or 4), 1, 4),
-        element = Clamp(floor(tonumber(t.element) or 1), 1, 8),
+        element = Clamp(floor(tonumber(t.element) or 1), 1, #TALENT.ELEMENTS),
         mana = Clamp(floor(tonumber(t.mana) or 0), 0, TALENT.MANA_MAX),
         limit = Clamp(floor(tonumber(t.limit) or 5), 1, #USE_LIMITS),
         reaction = t.reaction == true,
@@ -300,7 +301,7 @@ end
 
 local CLASS_TAG = {} -- ["addclassmage"] = "Mage"
 for _, c in ipairs(ADB.CLASSES) do
-    if c.name ~= ADB.GM_CLASS and c.name ~= ADB.EQUIPMENT_CLASS then
+    if c.name ~= ADB.GM_CLASS and c.name ~= ADB.EQUIPMENT_CLASS and not ADB.RACIAL_CLASS[c.name] then
         CLASS_TAG["addclass" .. Slug(c.name)] = c.name
     end
 end
@@ -308,6 +309,8 @@ end
 function Talents.ExtraClasses()
     local res, seen, db = {}, {}, ADB.db
     if not db then return res end
+    local racial = ADB.RACIAL_BY_RACE[db.race]
+    if racial then seen[racial] = true end
     local function Scan(it)
         if type(it) ~= "table" or type(it.tags) ~= "table" then return end
         for _, t in ipairs(it.tags) do
@@ -441,6 +444,13 @@ function Talents.TagRequirements(n)
     for _, t in ipairs(n.tags or {}) do
         local name = TALENT.TAG_REQUIREMENTS[t]
         if name then res[#res + 1] = { name = name, ok = ADB.Items.FindByTag(t) ~= nil } end
+        local x = tonumber(t:match("^aspirationpoint(%d+)$"))
+        if x then
+            res[#res + 1] = {
+                name = format("%d point%s d'aspiration requis", x, x > 1 and "s" or ""),
+                ok = (ADB.db.aspirationPoints or 0) >= x
+            }
+        end
     end
     return res
 end
@@ -648,6 +658,7 @@ function Talents.GetState(n)
     local cd, L = Talents.GetCooldown(n), USE_LIMITS[n.limit]
     if cd >= (L.charges or 1) then
         if L.charges then return false, "Limite d'utilisation atteinte (jusqu'au prochain repos).", "cd" end
+        if L.unit == "s" then return false, "Utilisable une fois par trame.", "cd" end
         return false, format("Compétence en recharge : %d %s restant%s.", cd,
             L.unit == "t" and (cd > 1 and "tours" or "tour") or "repos", ""), "cd"
     end

@@ -159,7 +159,9 @@ end)
 
 Slash.Register("pnj", function() ADB.GmTools.OpenNpcCreate() end)
 Slash.Register({ "mj", "xp" }, function() ADB.GmTools.OpenXp() end)
-Slash.Register("combat", function() ADB.Combat.Start() end)
+Slash.Register("combat", function()
+    if ADB.phase == "IDLE" then ADB.Combat.Start() else ADB.CombatUI.Refresh() end
+end)
 Slash.Register("repos", function() ADB.GmTools.OpenRest() end)
 Slash.Register({ "inv", "sac" }, function() ADB.InventoryWindow.Toggle() end)
 Slash.Register("objet", function() ADB.ItemCreator.Open() end)

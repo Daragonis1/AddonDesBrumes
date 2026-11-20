@@ -8,10 +8,20 @@ local format = string.format
 local BU = {}
 ADB.BuffUI = BU
 
-local function IsGood(b) return b.buffType == T.HEAL or b.buffType == T.WRATH or b.buffType == T.ADVANTAGE end
+local function IsGood(b)
+    return b.buffType == T.HEAL or b.buffType == T.WRATH or b.buffType == T.ADVANTAGE
+        or b.buffType == T.RESIST
+end
 
 local function Describe(b)
     local t = b.buffType
+    if t == T.BOSS then
+        return
+        "Cet ennemi est particulièrement redoutable. Il est résistant à la plupart des effets incapacitants et dispose de compétences plus puissantes que la moyenne des ennemis."
+    elseif t == T.RESIST then
+        return format("Résistance (%s) : les attaques de cet élément contre cette cible ont un désavantage.",
+            ADB.TALENT.ELEMENTS[b.value] or "?")
+    end
     if b.desc and b.desc ~= "" then return b.desc end
     if t == T.DAMAGE then
         return format("Inflige %d dégâts par tour.", b.value)
@@ -103,17 +113,28 @@ function BU.RefreshWindow()
     local f = ADB.bufFrame
     if not f or not f:IsShown() then return end
     f.IconTexture:SetTexture(ADB.IconTexture(f.icon))
-    UIDropDownMenu_SetText(f.TypeDrop, Buffs.LABELS[f.buffType])
+    f.ElemDrop:SetShown(f.buffType == T.RESIST)
+    f.Value:SetShown(f.buffType ~= T.RESIST)
+    UIDropDownMenu_SetText(f.TypeDrop, Buffs.LABELS[f.buffType] or "")
+    UIDropDownMenu_SetText(f.ElemDrop, ADB.TALENT.ELEMENTS[f.element] or "")
     f.Btn:SetText(f.editId and "Enregistrer" or "Créer")
     local defs = ADB.db.buffDefs
+    FauxScrollFrame_Update(f.Scroll, #defs, #f.rows, 22)
+    local off = FauxScrollFrame_GetOffset(f.Scroll)
     for i, r in ipairs(f.rows) do
-        local d = defs[i]
+        local d = defs[off + i]
         r.id = d and d.id
         for _, w in ipairs({ r.ic, r.txt, r.edit, r.apply, r.del }) do w:SetShown(d ~= nil) end
         if d then
             r.ic:SetTexture(ADB.IconTexture(d.icon))
-            r.txt:SetText(format("#%d %s |cffaaaaaa(%s, %dt%s)|r", d.id, d.name, Buffs.LABELS[d.buffType], d.duration,
-                d.buffType <= 2 and (", " .. d.value) or ""))
+            local detail = ""
+            if d.buffType <= 2 then
+                detail = ", " .. d.value
+            elseif d.buffType == T.RESIST then
+                detail = ", " .. (ADB.TALENT.ELEMENTS[d.value] or "?")
+            end
+            r.txt:SetText(format("#%d %s |cffaaaaaa(%s, %dt%s)|r", d.id, d.name,
+                Buffs.LABELS[d.buffType], d.duration, detail))
         end
     end
 end
@@ -123,9 +144,9 @@ function BU.ToggleWindow()
     if f:IsShown() then f:Hide() else f:Show() end
 end
 
-local MAX_DEFS = 12
+local ROWS = 12
 local function CreateWindow()
-    local f = UI.BaseWindow("ADBBuffMJFrame", 380, 526, "Buffs / Debuffs (MJ)")
+    local f = UI.BaseWindow("ADBBuffMJFrame", 390, 526, "Buffs / Debuffs (MJ)")
     ADB.bufFrame = f
     f:SetPoint("CENTER", -300, 0)
     tinsert(UISpecialFrames, "ADBBuffMJFrame")
@@ -160,6 +181,21 @@ local function CreateWindow()
             UIDropDownMenu_AddButton(info, level)
         end
     end)
+    f.element = 1
+    f.ElemDrop = CreateFrame("Frame", "ADBBuffElemDrop", f, "UIDropDownMenuTemplate")
+    f.ElemDrop:SetPoint("TOPLEFT", 250, -109)
+    UIDropDownMenu_SetWidth(f.ElemDrop, 70)
+    UIDropDownMenu_Initialize(f.ElemDrop, function(_, level)
+        for i, e in ipairs(ADB.TALENT.ELEMENTS) do
+            local info = UIDropDownMenu_CreateInfo()
+            info.text, info.checked = e, (f.element == i)
+            info.func = function()
+                f.element = i
+                BU.RefreshWindow()
+            end
+            UIDropDownMenu_AddButton(info, level)
+        end
+    end)
 
     UI.Label(f, "Valeur", 16, -150)
     f.Value = UI.Input(f, 70, -147, 50, 3, true)
@@ -172,11 +208,12 @@ local function CreateWindow()
         f.Name:SetText("")
         f.Tags:SetText("")
         f.Desc:SetText("")
+        f.element = 1
         BU.RefreshWindow()
     end
     f.Btn = UI.Button(f, "Créer", 150, -147, 100, function()
         if Buffs.CreateDef(f.Name:GetText(), f.icon, tonumber(f.Duration:GetText()) or 1, f.buffType,
-                tonumber(f.Value:GetText()) or 0, f.Tags:GetText(), f.editId, f.Desc:GetText()) then
+                f.buffType == T.RESIST and f.element or tonumber(f.Value:GetText()) or 0, f.Tags:GetText(), f.editId, f.Desc:GetText()) then
             Reset()
         end
     end)
@@ -184,9 +221,19 @@ local function CreateWindow()
     UI.Label(f, "Texte", 16, -202)
     f.Desc = UI.Input(f, 70, -199, 280, 100)
     UI.Label(f, "ID à saisir dans l'éditeur de talents pour lier un debuff.", 16, -226, "GameFontDisableSmall")
-
+    f.Scroll = CreateFrame("ScrollFrame", "ADBBuffScroll", f, "FauxScrollFrameTemplate")
+    f.Scroll:SetPoint("TOPLEFT", 16, -244)
+    f.Scroll:SetSize(334, ROWS * 22)
+    f.Scroll:SetScript("OnVerticalScroll", function(self, offset)
+        FauxScrollFrame_OnVerticalScroll(self, offset, 22, BU.RefreshWindow)
+    end)
+    f:EnableMouseWheel(true)
+    f:SetScript("OnMouseWheel", function(_, delta)
+        local sb = _G["ADBBuffScrollScrollBar"]
+        sb:SetValue(sb:GetValue() - delta * 22)
+    end)
     f.rows = {}
-    for i = 1, MAX_DEFS do
+    for i = 1, ROWS do
         local y, r = -244 - (i - 1) * 22, {}
         r.ic = f:CreateTexture(nil, "ARTWORK")
         r.ic:SetSize(18, 18)
@@ -199,6 +246,7 @@ local function CreateWindow()
             local d = r.id and Buffs.GetDef(r.id)
             if not d then return end
             f.editId, f.icon, f.buffType = d.id, d.icon, d.buffType
+            f.element = (d.buffType == T.RESIST) and ADB.Clamp(d.value, 1, #ADB.TALENT.ELEMENTS) or 1
             f.Name:SetText(d.name)
             f.Duration:SetText(d.duration)
             f.Value:SetText(d.value)
@@ -239,9 +287,9 @@ local function SelectedNode()
 end
 
 hooksecurefunc(ADB.TalentWindow, "Create", function()
-    local A = ADB.talFrame.Ed.C.Active
-    UI.Label(A, "Buff ID", 138, -4)
-    local e = UI.Input(A, 190, -1, 50, 4, true)
+    local A = ADB.talFrame.Ed.C
+    UI.Label(A, "Buff ID", 138, -196)
+    local e = UI.Input(A, 190, -193, 50, 4, true)
     e:SetScript("OnTextChanged", function(self, user)
         local n = SelectedNode()
         if user and n and ADB.Talents.CanEdit() then
