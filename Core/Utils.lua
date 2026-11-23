@@ -62,3 +62,10 @@ function ADB.SanitizeIcon(icon)
     if #icon == 0 or #icon > 40 or icon:find("[^%w_]") then return "INV_Misc_QuestionMark" end
     return icon
 end
+
+-- Safe call into a [MJOnly] module (no-op when the file is absent on the Player side).
+function ADB.MJ(module, fn, ...)
+    local m = ADB[module]
+    local f = m and m[fn]
+    if f then return f(...) end
+end

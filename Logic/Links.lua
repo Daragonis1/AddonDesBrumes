@@ -10,7 +10,7 @@ local Encode, Decode = ADB.Encode, ADB.Decode
 
 local Links = {}
 ADB.Links = Links
-Links.cache = {}     -- ["ci:id"] = node received from another player
+Links.cache = {} -- ["ci:id"] = node received from another player
 local pending, sentAt = {}, {}
 
 local function ToHyperlink(msg)
@@ -62,12 +62,26 @@ Net.Register("TL", function(sender, message)
     local e = pending[pk]
     if idx == 0 then
         local flags = tonumber(p[12]) or 0
-        e = { total = total, parts = {}, t = {
-            nodeType = p[6], stat = p[7], effect = p[8], element = p[9], mana = p[10], limit = p[11],
-            reaction = (flags % 2 == 1), bonusAction = (floor(flags / 2) % 2 == 1),
-            hpCost = p[13], range = p[14], accuracy = p[15], aoe = p[16],
-            icon = p[17], name = Decode(p[18] or ""),
-        } }
+        e = {
+            total = total,
+            parts = {},
+            t = {
+                nodeType = p[6],
+                stat = p[7],
+                effect = p[8],
+                element = p[9],
+                mana = p[10],
+                limit = p[11],
+                reaction = (flags % 2 == 1),
+                bonusAction = (floor(flags / 2) % 2 == 1),
+                hpCost = p[13],
+                range = p[14],
+                accuracy = p[15],
+                aoe = p[16],
+                icon = p[17],
+                name = Decode(p[18] or ""),
+            }
+        }
         pending[pk] = e
     elseif e and idx >= 1 and idx <= e.total then
         e.parts[idx] = Decode(p[6] or "")
@@ -78,7 +92,7 @@ Net.Register("TL", function(sender, message)
         if not e.parts[i] then return end
     end
     pending[pk] = nil
-    e.t.id = max(1, id)   -- ValidateNode rejects id < 1 (basic attack = id 0)
+    e.t.id = max(1, id) -- ValidateNode rejects id < 1 (basic attack = id 0)
     e.t.desc = table.concat(e.parts, "", 1, e.total)
     local n = Talents.ValidateNode(e.t)
     if n then
@@ -94,7 +108,7 @@ local function Filter(_, _, msg, ...)
     if msg and msg:find("{ADB:", 1, true) then return false, ToHyperlink(msg), ... end
 end
 for _, ev in ipairs({ "CHAT_MSG_PARTY", "CHAT_MSG_PARTY_LEADER", "CHAT_MSG_RAID", "CHAT_MSG_RAID_LEADER",
-    "CHAT_MSG_INSTANCE_CHAT", "CHAT_MSG_INSTANCE_CHAT_LEADER" }) do
+    "CHAT_MSG_INSTANCE_CHAT", "CHAT_MSG_INSTANCE_CHAT_LEADER", "CHAT_MSG_GUILD", "CHAT_MSG_OFFICER" }) do
     ChatFrame_AddMessageEventFilter(ev, Filter)
 end
 
@@ -164,4 +178,4 @@ local function HookChatFrames()
     end
 end
 HookChatFrames()
-hooksecurefunc("FCF_OpenTemporaryWindow", HookChatFrames)   -- whisper/temporary tabs
+hooksecurefunc("FCF_OpenTemporaryWindow", HookChatFrames) -- whisper/temporary tabs

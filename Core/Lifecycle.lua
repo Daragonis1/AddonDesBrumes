@@ -64,7 +64,7 @@ Events.Register("PLAYER_LOGIN", function()
 
     ADB.ConfigWindow.InitDropdowns()
     ADB.InventoryWindow.Create()
-    ADB.ItemCreator.Create()
+    ADB.MJ("ItemCreator", "Create")
     ADB.Icons.CreateWindow()
     ADB.CombatUI.Create()
     ADB.Talents.Init()
@@ -157,14 +157,21 @@ Slash.Register("nom", function(rest)
     ADB.Print("Nom RP : " .. ADB.Stats.DisplayName(ADB.playerName))
 end)
 
-Slash.Register("pnj", function() ADB.GmTools.OpenNpcCreate() end)
-Slash.Register({ "mj", "xp" }, function() ADB.GmTools.OpenXp() end)
-Slash.Register("combat", function()
-    if ADB.phase == "IDLE" then ADB.Combat.Start() else ADB.CombatUI.Refresh() end
+Slash.Register("pnj", function() ADB.MJ("GmTools", "OpenNpcCreate") end)
+Slash.Register({ "mj", "xp" }, function() ADB.MJ("GmTools", "OpenXp") end)
+Slash.Register("combat", function(rest)
+    local w1, w2, w3 = (rest or ""):lower():match("^(%S*)%s*(%S*)%s*(%S*)")
+    if w1 ~= "enemy" then return ADB.Combat.Start() end
+    if not ADB.IsGM() or ADB.phase == "IDLE" then return end
+    if w2 == "add" then
+        ADB.MJ("GmTools", "AddEnemy", w3 == "boss")
+    elseif w2 == "remove" then
+        ADB.MJ("GmTools", "RemoveEnemyTarget")
+    end
 end)
-Slash.Register("repos", function() ADB.GmTools.OpenRest() end)
+Slash.Register("repos", function() ADB.MJ("GmTools", "OpenRest") end)
+Slash.Register("objet", function() ADB.MJ("ItemCreator", "Open") end)
 Slash.Register({ "inv", "sac" }, function() ADB.InventoryWindow.Toggle() end)
-Slash.Register("objet", function() ADB.ItemCreator.Open() end)
 Slash.Register("talents", function() ADB.TalentWindow.Toggle() end)
 Slash.Register("ui", function()
     ADB.db.replaceUI = not ADB.db.replaceUI

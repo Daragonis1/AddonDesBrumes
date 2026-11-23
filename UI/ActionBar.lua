@@ -46,7 +46,7 @@ function AB.OnClick(b)
     local data = { id = n.id, targetName = T.TargetName() }
     if UnitExists("target") then
         if n.aoe > 0 then
-            data.targets = ADB.Measure.ZoneTargets(n.aoe / 2)
+            data.targets = ADB.Measure.ZoneTargets(n.aoe)
         else
             local e = ADB.Measure.UnitEntry("target")
             if e then data.targets = { e } end
@@ -60,9 +60,24 @@ function AB.OnClick(b)
     local suffix = data.targetName and (" sur " .. data.targetName) or ""
     if n.aoe > 0 then
         local l = T.NamesOf(data.targets)
-        suffix = suffix .. string.format("\nZone %g m - touchés : %s", n.aoe / 2, l ~= "" and l or "aucun")
+        suffix = suffix .. n.aoe
     end
     StaticPopup_Show("ADB_TAL_UTILISER", n.name, suffix, data)
+end
+
+local function BarOf(f) return f.tex and f:GetParent() or f end
+
+local function DragStart(self)
+    local bar = BarOf(self)
+    if bar ~= ADB.altActionBar then bar:StartMoving() end
+end
+
+local function DragStop(self)
+    local bar = BarOf(self)
+    bar:StopMovingOrSizing()
+    if bar == ADB.altActionBar then return end
+    local p, _, rp, x, y = bar:GetPoint(1)
+    ADB.db.actionBarPos = { p, rp, floor(x + 0.5), floor(y + 0.5) }
 end
 
 local function CreateButton(i)
@@ -85,6 +100,9 @@ local function CreateButton(i)
     b:SetScript("OnClick", function(self) AB.OnClick(self) end)
     b:SetScript("OnEnter", Tooltip)
     b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    b:RegisterForDrag("LeftButton")
+    b:SetScript("OnDragStart", DragStart)
+    b:SetScript("OnDragStop", DragStop)
     bar.btns[i] = b
     return b
 end
@@ -93,7 +111,19 @@ end
 function AB.Create()
     local b = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
     b:SetFrameStrata("MEDIUM")
-    b:SetPoint("BOTTOM", UIParent, "BOTTOM", 0, 150)
+    local pos = ADB.db and ADB.db.actionBarPos
+    if type(pos) == "table" and type(pos[1]) == "string" and type(pos[2]) == "string"
+        and tonumber(pos[3]) and tonumber(pos[4]) then
+        b:SetPoint(pos[1], UIParent, pos[2], pos[3], pos[4])
+    else
+        b:SetPoint("BOTTOM", UIParent, "BOTTOM", 0, 150)
+    end
+    b:SetMovable(true)
+    b:SetClampedToScreen(true)
+    b:EnableMouse(true)
+    b:RegisterForDrag("LeftButton")
+    b:SetScript("OnDragStart", DragStart)
+    b:SetScript("OnDragStop", DragStop)
     b:SetSize(60, 60)
     ADB.UI.ApplyBackdrop(b)
     b.btns = {}

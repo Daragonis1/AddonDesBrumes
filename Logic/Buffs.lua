@@ -227,14 +227,15 @@ end
 -- Application / replication
 ------------------------------------------------------------------------------
 local function Entry(b)
-    return format("%d,%d,%d,%d,%s,%s,%s", b.id, b.left, b.buffType, b.value, b.icon, ADB.Escape(b.name, "[%%;,]"),
-        ADB.Escape(b.desc or "", "[%%;,]"))
+    return format("%d,%d,%d,%d,%s,%s,%s,%s", b.id, b.left, b.buffType, b.value, b.icon, ADB.Escape(b.name, "[%%;,]"),
+        ADB.Escape(b.desc or "", "[%%;,]"), ADB.Escape(b.origin or "", "[%%;,]"))
 end
 
 local function ReadEntry(e)
-    local id, left, bt, value, icon, name, desc = strsplit(",", e)
+    local id, left, bt, value, icon, name, desc, origin = strsplit(",", e)
     id, left, bt, value = tonumber(id), tonumber(left), tonumber(bt), tonumber(value)
     if not (id and left and bt and value and bt >= 1 and bt <= #Buffs.LABELS and icon) then return nil end
+    origin = CleanName(Decode(origin or "")):sub(1, 40)
     return {
         id = floor(id),
         left = Clamp(floor(left), 1, 99),
@@ -242,7 +243,8 @@ local function ReadEntry(e)
         value = Clamp(floor(value), 0, 999),
         icon = ADB.SanitizeIcon(icon),
         name = CleanName(Decode(name or "")):sub(1, 40),
-        desc = CleanName(Decode(desc or "")):sub(1, 100)
+        desc = CleanName(Decode(desc or "")):sub(1, 100),
+        origin = origin ~= "" and origin or nil
     }
 end
 
@@ -296,14 +298,12 @@ function Buffs.Apply(key, inst)
             if IMMUNE[list[i].buffType] then table.remove(list, i) end
         end
     end
-    ADB.Net.Announce(format("%s est affecté par %s (%d tour%s).", Buffs.KeyName(key), inst.name,
-        inst.left, inst.left > 1 and "s" or ""))
     Buffs.Broadcast(key)
     ADB.BuffUI.Refresh()
     return true
 end
 
-function Buffs.ApplyDef(def, key, bonus, mult)
+function Buffs.ApplyDef(def, key, bonus, mult, origin)
     local value = def.value
     if def.buffType <= 2 then value = Clamp(floor((def.value + (bonus or 0)) * (mult or 1) + 0.5), 0, 999) end
     return Buffs.Apply(key, {
@@ -313,7 +313,8 @@ function Buffs.ApplyDef(def, key, bonus, mult)
         value = value,
         icon = def.icon,
         name = def.name,
-        desc = def.desc
+        desc = def.desc,
+        origin = origin
     })
 end
 
@@ -327,7 +328,7 @@ function Buffs.Request(id, bonus, mult, key)
     end
 end
 
-function Buffs.Process(id, bonus, mult100, key)
+function Buffs.Process(id, bonus, mult100, key, origin)
     if id == Buffs.BOSS_ID then
         return Buffs.Apply(key, {
             id = -1,
@@ -350,7 +351,7 @@ function Buffs.Process(id, bonus, mult100, key)
         })
     end
     local def = Buffs.GetDef(id)
-    if def then Buffs.ApplyDef(def, key, Clamp(bonus, 0, 5), Clamp(mult100, 0, 3000) / 100) end
+    if def then Buffs.ApplyDef(def, key, Clamp(bonus, 0, 5), Clamp(mult100, 0, 3000) / 100, origin) end
 end
 
 function Buffs.ForceApply(id)
@@ -370,6 +371,8 @@ function Buffs.FromTalent(n, targets)
         targets = { { kind = "P", id = ADB.playerName } }
         local pet = ADB.Pets.GetPet()
         if pet then targets[2] = { kind = "N", id = tostring(pet.id), name = pet.name } end
+    elseif Talents.HasTag(n, "wyrmshot") or Talents.HasTag(n, "felseed") then
+        if not targets or #targets == 0 then return end
     elseif Talents.HasTag(n, "avatarofvengeance") or not targets or #targets == 0 then
         targets = { { kind = "P", id = ADB.playerName } }
     end
@@ -383,7 +386,7 @@ local function Receive(cmd, sender, p)
         if not ADB.IsGM() or not ADB.roster[sender] then return end
         local id, bonus, m = tonumber(p[2]), tonumber(p[3]), tonumber(p[4])
         local key = Decode(p[5] or "")
-        if id and bonus and m and ValidKey(key) then Buffs.Process(floor(id), floor(bonus), floor(m), key) end
+        if id and bonus and m and ValidKey(key) then Buffs.Process(floor(id), floor(bonus), floor(m), key, sender) end
     elseif cmd == "BF" then
         if ADB.IsGM() or not ADB.IsGMName(sender) then return end
         local key = Decode(p[2] or "")
@@ -468,6 +471,60 @@ local function Resolve(allies)
     ADB.BuffUI.Refresh()
 end
 
+-- Felseed: end of player turn, every enemy carrying a "felseed" debuff gets Corruption (def #10, scaled by the
+-- origin's intellect), as does every combat enemy within 10 m of it.
+local CORRUPTION_ID, SPREAD_RANGE = 14, 10
+
+local function IsEnemyKey(key)
+    local kind = key:sub(1, 1)
+    if kind == "E" then return true end
+    if kind == "N" then
+        local p = ADB.NPC.FindById(ADB.db.npcs, tonumber(key:sub(3)))
+        return p ~= nil and not p.ally
+    end
+    return false
+end
+
+local function UnitForKey(key)
+    local kind, id = key:sub(1, 1), key:sub(3)
+    local p = kind == "N" and ADB.NPC.FindById(ADB.db.npcs, tonumber(id)) or nil
+    local function Match(u)
+        if not UnitExists(u) then return false end
+        if kind == "E" then return UnitGUID(u) == id end
+        return p ~= nil and not UnitIsPlayer(u) and UnitName(u) == p.name
+    end
+    return ADB.Measure.FindUnit(Match)
+end
+
+function Buffs.SpreadFelseed()
+    local def = Buffs.GetDef(CORRUPTION_ID)
+    if not (ADB.IsGM() and def) then return end
+    local seeds = {}
+    for key, list in pairs(Buffs.active) do
+        if IsEnemyKey(key) then
+            for _, b in ipairs(list) do
+                if Buffs.HasTag(b, "felseed") then
+                    seeds[#seeds + 1] = { key = key, origin = b.origin }
+                    break
+                end
+            end
+        end
+    end
+    local guids = {}
+    for _, e in ipairs(ADB.combatEnemies) do guids[e.guid] = true end
+    for _, s in ipairs(seeds) do
+        local keys = { [s.key] = true }
+        local u = UnitForKey(s.key)
+        if u then
+            for _, e in ipairs(ADB.Measure.ZoneAround(u, SPREAD_RANGE)) do
+                if e.kind == "N" and guids[e.id] then keys[Buffs.KeyFromEntry(e)] = true end
+            end
+        end
+        local d = s.origin and ADB.Stats.GetBlock(s.origin)
+        for key in pairs(keys) do Buffs.ApplyDef(def, key, 0, d and d.intellectMult or 1, s.origin) end
+    end
+end
+
 local prevPhase = "IDLE"
 ADB.Combat.OnPhase(function(phase)
     local prev = prevPhase
@@ -481,6 +538,7 @@ ADB.Combat.OnPhase(function(phase)
     elseif ADB.IsGM() then
         if prev == "PLAYER_TURN" then
             Resolve(true)
+            Buffs.SpreadFelseed()
         elseif prev == "ENEMY_TURN" then
             Resolve(false)
         end

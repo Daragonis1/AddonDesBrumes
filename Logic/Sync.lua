@@ -54,8 +54,13 @@ Net.Register("S", function(sender, message)
         strength = Clamp(floor(str), 0, ADB.MAX_FINAL_STAT),
         agility = Clamp(floor(agi), 0, ADB.MAX_FINAL_STAT),
         intellect = Clamp(floor(int), 0, ADB.MAX_FINAL_STAT),
-        hp = math.max(0, floor(hp)), mp = math.max(0, floor(mp)),
-        rpName = rp, xp = xp, level = ADB.Stats.LevelForXP(xp), race = race, class = class,
+        hp = math.max(0, floor(hp)),
+        mp = math.max(0, floor(mp)),
+        rpName = rp,
+        xp = xp,
+        level = ADB.Stats.LevelForXP(xp),
+        race = race,
+        class = class,
         copper = Clamp(floor(tonumber(p[12]) or 0), 0, ADB.COPPER_MAX),
         shield = Clamp(floor(tonumber(p[13]) or 0), 0, ADB.SHIELD_MAX),
     }
@@ -63,9 +68,25 @@ Net.Register("S", function(sender, message)
     ADB.RefreshAll()
 end)
 
-Net.Register("Q", function()
+Net.Register("Q", function(sender)
     Sync.ScheduleBroadcast()
-    if ADB.IsGM() then ADB.NPC.ScheduleFull() end
+    if ADB.IsGM() then
+        ADB.NPC.ScheduleFull()
+        if ADB.phase ~= "IDLE" then
+            Net.Send(format("CJ;%s;%s;%d", sender, ADB.phase, ADB.turnCount or 0))
+        end
+    end
+end)
+
+-- Rejoindre un combat en cours : le MJ renvoie la phase au joueur qui vient de se connecter.
+Net.Register("CJ", function(sender, message)
+    local p = Net.Split(message)
+    if p[2] ~= ADB.playerName or not ADB.IsGMName(sender) or ADB.IsGM() or ADB.phase ~= "IDLE" then return end
+    local phase = p[3]
+    if not phase or phase == "IDLE" or not ADB.PHASE_BANNER[phase] then return end
+    local n = math.max(0, floor(tonumber(p[4]) or 0))
+    ADB.turnCount = (phase == "PLAYER_TURN") and math.max(0, n - 1) or n -- Apply() incrémente en PLAYER_TURN
+    ADB.Combat.SetPhase(phase)
 end)
 
 local WIRE_TO_KIND = { pv = "hp", pm = "mp", sh = "shield", pvx = "hp" }
@@ -113,9 +134,15 @@ Net.Register("IE", function(sender, message)
     local p = Net.Split(message)
     if p[2] ~= ADB.playerName or not ADB.IsGMName(sender) then return end
     local it = ADB.Items.Validate({
-        kind = "equip", slot = p[3], rarity = tonumber(p[4]), icon = p[5],
+        kind = "equip",
+        slot = p[3],
+        rarity = tonumber(p[4]),
+        icon = p[5],
         stats = { tonumber(p[6]), tonumber(p[7]), tonumber(p[8]) },
-        name = Decode(p[9] or ""), skillsText = Decode(p[10] or ""), skillIds = p[11], tags = p[12],
+        name = Decode(p[9] or ""),
+        skillsText = Decode(p[10] or ""),
+        skillIds = p[11],
+        tags = p[12],
     })
     if it then ADB.Items.Receive(it, 1) end
 end)

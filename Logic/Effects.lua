@@ -157,15 +157,7 @@ end
 local function PetUnit(pet)
     if not pet then return nil end
     local function Match(u) return UnitExists(u) and UnitName(u) == pet.name end
-    for _, u in ipairs({ "pet", "target", "focus", "mouseover" }) do
-        if Match(u) then return u end
-    end
-    for i = 1, 40 do
-        if Match("nameplate" .. i) then return "nameplate" .. i end
-    end
-    for _, u in ipairs(ADB.Group.ListUnits()) do
-        if Match(u .. "target") then return u .. "target" end
-    end
+    return ADB.Measure.FindUnit(Match)
 end
 
 local function SelfEntry()
@@ -453,7 +445,7 @@ function Effects.LunaText(e, effect, v)
 end
 
 -- Built-in root (id -2, bonus = number of turns).
-ADB.Wrap(ADB.Buffs, "Process", function(orig, id, bonus, mult100, key)
+ADB.Wrap(ADB.Buffs, "Process", function(orig, id, bonus, mult100, key, origin)
     if id == -2 then
         return ADB.Buffs.Apply(key, {
             id = -2,
@@ -464,7 +456,7 @@ ADB.Wrap(ADB.Buffs, "Process", function(orig, id, bonus, mult100, key)
             name = "Immobilisation"
         })
     end
-    return orig(id, bonus, mult100, key)
+    return orig(id, bonus, mult100, key, origin)
 end)
 
 ------------------------------------------------------------------------------
@@ -480,7 +472,7 @@ local function GainMana(g, source)
     local d = ADB.Stats.GetBlock(ADB.playerName)
     local new = min(d.maxMp, ADB.db.mp + g)
     if new > ADB.db.mp then
-        ADB.Net.Announce(format("%s regagne %d PM (%s).", ADB.Stats.DisplayName(ADB.playerName), new - ADB.db.mp, source))
+        ADB.CombatUI.Banner(format("Regain de mana : +%d PM (%s)", new - ADB.db.mp, source))
         ADB.db.mp = new
         ADB.Sync.AfterLocalChange()
     end
@@ -534,6 +526,27 @@ ADB.Combat.OnPhase(function(phase)
     local g = max(1, floor(d.intellectMult + 0.5))
     if LearnedByTag("healonhounddamage") then Heal(g * count) end
     if PetHitSource() then GainMana(g * count, "Hound") end
+end)
+
+-- wyrmshot: end of enemy turn, +[X] mana per enemy still carrying a "wyrmshot" debuff applied by the player.
+local wyrmPrev = "IDLE"
+ADB.Combat.OnPhase(function(phase)
+    local prev = wyrmPrev
+    wyrmPrev = phase
+    if prev ~= "ENEMY_TURN" or phase == prev or phase == "IDLE" or ADB.IsGM() then return end
+    local n = LearnedByTag("wyrmshot")
+    if not n then return end
+    local count = 0
+    for key, list in pairs(ADB.Buffs.active) do
+        if not IsAllyKey(key) then
+            for _, b in ipairs(list) do
+                if b.origin == ADB.playerName and ADB.Buffs.HasTag(b, "wyrmshot") then count = count + 1 end
+            end
+        end
+    end
+    if count == 0 then return end
+    local _, x = Talents.FormatDescription(n.desc, true, Talents.Multiplier(n), Talents.SpecBonus(n))
+    if x and x > 0 then GainMana(x * count, "Piqûre de Wyrm") end
 end)
 
 -- cobraaspect: skills tagged "cobrashot" get +5 accuracy and grant +2 mana on a hit (success / critical success).

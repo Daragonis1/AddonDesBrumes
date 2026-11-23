@@ -9,7 +9,7 @@ ADB.Stats = Stats
 
 local STAT_KEYS = { "strength", "agility", "intellect" }
 Stats.MAX_KEY = { hp = "maxHp", mp = "maxMp" }
-Stats.WIRE_KIND = { hp = "pv", mp = "pm", shield = "sh" }   -- wire-frozen names
+Stats.WIRE_KIND = { hp = "pv", mp = "pm", shield = "sh" } -- wire-frozen names
 
 function Stats.LevelForXP(xp)
     xp = tonumber(xp) or 0
@@ -64,8 +64,20 @@ end
 local function LocalSource()
     local db = ADB.db
     local str, agi, int = Stats.FinalStats(db)
-    return { strength = str, agility = agi, intellect = int, hp = db.hp, mp = db.mp, rpName = db.rpName,
-        race = db.race, class = db.class, xp = db.xp, level = db.level, copper = db.copper, shield = db.shield }
+    return {
+        strength = str,
+        agility = agi,
+        intellect = int,
+        hp = db.hp,
+        mp = db.mp,
+        rpName = db.rpName,
+        race = db.race,
+        class = db.class,
+        xp = db.xp,
+        level = db.level,
+        copper = db.copper,
+        shield = db.shield
+    }
 end
 
 function Stats.GetBlock(name)
@@ -79,11 +91,24 @@ function Stats.GetBlock(name)
     if not src then return nil end
     local maxHp, maxMp, sm, am, im = Stats.Vitals(src.strength, src.agility, src.intellect)
     return {
-        name = name, rpName = src.rpName, race = src.race, class = src.class,
-        xp = src.xp or 0, level = src.level or 1, copper = src.copper or 0, shield = src.shield or 0,
-        strength = src.strength, agility = src.agility, intellect = src.intellect,
-        hp = Clamp(src.hp, 0, maxHp), mp = Clamp(src.mp, 0, maxMp), maxHp = maxHp, maxMp = maxMp,
-        strengthMult = sm, agilityMult = am, intellectMult = im,
+        name = name,
+        rpName = src.rpName,
+        race = src.race,
+        class = src.class,
+        xp = src.xp or 0,
+        level = src.level or 1,
+        copper = src.copper or 0,
+        shield = src.shield or 0,
+        strength = src.strength,
+        agility = src.agility,
+        intellect = src.intellect,
+        hp = Clamp(src.hp, 0, maxHp),
+        mp = Clamp(src.mp, 0, maxMp),
+        maxHp = maxHp,
+        maxMp = maxMp,
+        strengthMult = sm,
+        agilityMult = am,
+        intellectMult = im,
     }
 end
 
@@ -139,6 +164,11 @@ end
 
 function Stats.ReceiveRest(pct)
     pct = Clamp(floor(pct), 0, 100)
+    if ADB.altContext then     -- le secondaire est géré par le MJ (PNJ possédé, bonus ration inclus)
+        ADB.Talents.OnRest()
+        ADB.Sync.AfterLocalChange()
+        return
+    end
     if ADB.Items.RemoveConsumable("ration") then
         pct = min(100, pct + ADB.RATION_BONUS)
         ADB.Print(format("Vous avez mangé une Ration : +%d%% de récupération.", ADB.RATION_BONUS))

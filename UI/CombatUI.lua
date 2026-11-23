@@ -31,6 +31,31 @@ function CUI.Banner(text)
     b:Show()
 end
 
+-- Coloured alert (red by default), stays ~6 s.
+function CUI.Alert(text, r, g, b)
+    local a = ADB.alertFrame
+    if not a then
+        a = CreateFrame("Frame", "ADBAlert", UIParent)
+        a:SetFrameStrata("FULLSCREEN_DIALOG")
+        a:SetSize(1100, 40)
+        a:SetPoint("TOP", UIParent, "TOP", 0, -270)
+        a.t = a:CreateFontString(nil, "OVERLAY")
+        a.t:SetFont(STANDARD_TEXT_FONT, 28, "THICKOUTLINE")
+        a.t:SetPoint("CENTER")
+        a.t:SetWidth(1100)
+        a:SetScript("OnUpdate", function(s, elapsed)
+            s.e = s.e + elapsed
+            if s.e > 7 then s:Hide() elseif s.e > 6 then s:SetAlpha(7 - s.e) end
+        end)
+        ADB.alertFrame = a
+    end
+    a.t:SetTextColor(r or 1, g or 0.2, b or 0.2)
+    a.t:SetText(text)
+    a.e = 0
+    a:SetAlpha(1)
+    a:Show()
+end
+
 ------------------------------------------------------------------------------
 -- Turn indicator
 ------------------------------------------------------------------------------
@@ -83,7 +108,8 @@ function CUI.Refresh()
     if not d then return end
     local phase, isGM = ADB.phase, ADB.IsGM()
     d:SetShown(isGM and phase ~= "IDLE")
-    p:SetShown((not isGM) and phase == "PLAYER_TURN")
+    p:SetShown((not isGM) and phase ~= "IDLE" and phase ~= "STARTING")
+    p.Btn:SetShown(phase == "PLAYER_TURN")
     if isGM and phase ~= "IDLE" then
         local extra = ""
         if phase == "PLAYER_TURN" then
@@ -104,15 +130,21 @@ function CUI.SetEndTurnEnabled(on)
 end
 
 -- Movement counter under the "end turn" button (called by Measure's ticker).
-function CUI.SetMovementText(text)
+function CUI.SetMovementText(text, status, r, g, b)
     local cb = ADB.cbJ
     if not (cb and cb:IsShown()) then return end
     if not cb.Move then
-        cb:SetHeight(64)
+        cb:SetSize(210, 78)
+        cb.Btn:ClearAllPoints()
+        cb.Btn:SetPoint("TOP", cb, "TOP", 0, -11)
         cb.Move = cb:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        cb.Move:SetPoint("BOTTOM", 0, 8)
+        cb.Move:SetPoint("BOTTOM", 0, 24)
+        cb.Status = cb:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        cb.Status:SetPoint("BOTTOM", 0, 8)
     end
     cb.Move:SetText(text)
+    cb.Status:SetText(status)
+    cb.Status:SetTextColor(r, g, b)
 end
 
 ------------------------------------------------------------------------------

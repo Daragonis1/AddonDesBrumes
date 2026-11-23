@@ -621,18 +621,9 @@ end
 
 -- Visible unit with the given (non-player) name, if any.
 function UF.FindNpcUnit(name)
-    local function Match(u)
+    return ADB.Measure.FindUnit(function(u)
         return UnitExists(u) and not UnitIsPlayer(u) and UnitName(u) == name and UnitIsVisible(u)
-    end
-    for _, u in ipairs({ "target", "focus", "mouseover" }) do
-        if Match(u) then return u end
-    end
-    for i = 1, 40 do
-        if Match("nameplate" .. i) then return "nameplate" .. i end
-    end
-    for _, u in ipairs(ADB.Group.ListUnits()) do
-        if Match(u .. "target") then return u .. "target" end
-    end
+    end)
 end
 
 -- Dynamic NPC portrait: copies the visible unit's portrait, else keeps the last one (or "?").
@@ -826,6 +817,6 @@ end)
 
 local npcPortraitEvents = CreateFrame("Frame")
 for _, e in ipairs({ "PLAYER_TARGET_CHANGED", "PLAYER_FOCUS_CHANGED", "UPDATE_MOUSEOVER_UNIT",
-    "NAME_PLATE_UNIT_ADDED", "UNIT_PORTRAIT_UPDATE", "UNIT_MODEL_CHANGED" }) do npcPortraitEvents:RegisterEvent(e) end
+    "UNIT_TARGET", "UNIT_PORTRAIT_UPDATE", "UNIT_MODEL_CHANGED" }) do npcPortraitEvents:RegisterEvent(e) end
 npcPortraitEvents:SetScript("OnEvent", UF.UpdatePortraits)
 C_Timer.NewTicker(1, UF.UpdatePortraits)

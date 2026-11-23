@@ -4,7 +4,7 @@ local ADB = ADB
 local Net = {}
 ADB.Net = Net
 
-local handlers = {}   -- [cmd] = fn(sender, message, cmd)
+local handlers = {} -- [cmd] = fn(sender, message, cmd)
 
 function Net.Register(cmd, fn) handlers[cmd] = fn end
 
@@ -31,7 +31,7 @@ function Net.Announce(text)
         ADB.Print(text)
         return
     end
-    SendChatMessage(text, Net.GetChannel())
+    SendChatMessage(text, IsInGuild() and "GUILD" or Net.GetChannel())
 end
 
 -- Throttled send queue (1 message / 0.12 s) to avoid addon-message flooding.

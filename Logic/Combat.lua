@@ -152,6 +152,7 @@ function Combat.CheckPlayersDone()
     for _, r in ipairs(list) do
         if not r.done then return end
     end
+    if ph == "PLAYER_TURN" and ADB.Measure.CheckViolations() then return end
     Combat.GmEndTurn()
 end
 
@@ -210,6 +211,7 @@ end
 -- Player side
 function Combat.PlayerEndTurn()
     ADB.turnPassed = true
+    ADB.Measure.SendDistance()
     Net.Send("CD")
     ADB.CombatUI.SetEndTurnEnabled(false)
     ADB.CombatUI.Refresh()

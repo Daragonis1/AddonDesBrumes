@@ -99,6 +99,18 @@ function Talents.Execute(n, data, offTurn)
             end
             msg = msg .. (mult > 1 and " (effet doublé)" or "")
             if targets and #targets > 0 then ADB.Measure.SendEffects(targets, n.effect, v) end
+            if n.effect == 1 and targets and #targets > 0 and Talents.HasTag(n, "lifedrain") then
+                local d, heal = ADB.Stats.GetBlock(ADB.playerName), v * #targets
+                ADB.Stats.ApplyValue(ADB.playerName, "hp", d.hp + heal, true)
+                msg = msg .. format(" Drain de vie : +%d PV.", heal)
+            end
+        end
+        if value and targets and #targets > 0
+            and (Talents.HasTag(n, "manaheal") or Talents.HasTag(n, "healthmanaheal")) then
+            local x = value * mult
+            if Talents.HasTag(n, "healthmanaheal") and n.effect ~= 2 then ADB.Measure.SendEffects(targets, 2, x) end
+            ADB.Measure.SendEffects(targets, 4, x)
+            msg = msg .. format(" La compétence a rendu %d points de mana.", x)
         end
         if (n.buffId or 0) > 0 then ADB.Buffs.FromTalent(n, targets) end
         local spec = Talents.ActiveSpec()
@@ -106,7 +118,7 @@ function Talents.Execute(n, data, offTurn)
             local gain = max(1, floor(Talents.Multiplier(n) + 0.5))
             local d = ADB.Stats.GetBlock(ADB.playerName)
             db.mp = min(d.maxMp, db.mp + gain)
-            msg = msg .. format(" Regain de mana : +%d PM.", gain)
+            ADB.CombatUI.Banner(format("Regain de mana : +%d PM", gain))
         end
     end
 
@@ -126,7 +138,7 @@ function Talents.GmTrigger(n)
     local targets
     if UnitExists("target") then
         if n.aoe > 0 then
-            targets = ADB.Measure.ZoneTargets(n.aoe / 2)
+            targets = ADB.Measure.ZoneTargets(n.aoe)
         else
             local e = ADB.Measure.UnitEntry("target")
             targets = e and { e } or nil

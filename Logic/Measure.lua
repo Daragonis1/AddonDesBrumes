@@ -8,8 +8,8 @@ local format = string.format
 local Measure = {}
 ADB.Measure = Measure
 
-Measure.enemyDamage = {}   -- [guid] = cumulative damage on enemies that have no sheet
-local movement = nil       -- { m, x0, y0, info, raid } during the player's turn
+Measure.enemyDamage = {} -- [guid] = cumulative damage on enemies that have no sheet
+local movement = nil     -- { m, x0, y0, info, raid } during the player's turn
 local BASE_MOVE_LIMIT = 15
 local moveLimit = BASE_MOVE_LIMIT
 
@@ -39,6 +39,63 @@ local function EstimateRange(unit)
     return seen and 100 or nil
 end
 
+Measure.known = {} -- [guid] = { name, range, t } : PNJ déjà vus (portée estimée depuis le joueur)
+local KNOWN_TTL = 30
+
+-- unitIDs résolvables (le seul moyen d'obtenir un token depuis un GUID sans nameplate).
+function Measure.Tokens()
+    local t = { "target", "focus", "mouseover", "player", "pet", "pettarget" }
+    for i = 1, 5 do t[#t + 1] = "boss" .. i end
+    for _, u in ipairs(ADB.Group.ListUnits()) do
+        t[#t + 1] = u
+        t[#t + 1] = u .. "target"
+        t[#t + 1] = u .. "pettarget"
+    end
+    return t
+end
+
+function Measure.FindUnit(match)
+    for _, u in ipairs(Measure.Tokens()) do
+        if match(u) then return u end
+    end
+end
+
+local function Snapshot(u)
+    if not UnitExists(u) or UnitIsPlayer(u) or UnitPlayerControlled(u) then return end
+    local guid = UnitGUID(u)
+    if not guid then return end
+    if UnitIsDeadOrGhost(u) then
+        Measure.known[guid] = nil
+        return
+    end
+    local r = EstimateRange(u)
+    if r then Measure.known[guid] = { name = UnitName(u), range = r, t = GetTime() } end
+end
+
+function Measure.SnapshotNpcs()
+    for _, u in ipairs(Measure.Tokens()) do Snapshot(u) end
+end
+
+local tracker = CreateFrame("Frame")
+for _, e in ipairs({ "PLAYER_TARGET_CHANGED", "PLAYER_FOCUS_CHANGED", "UPDATE_MOUSEOVER_UNIT", "UNIT_TARGET" }) do
+    tracker:RegisterEvent(e)
+end
+tracker:SetScript("OnEvent", function(_, event, unit)
+    if ADB.phase == "IDLE" then return end
+    if event == "UNIT_TARGET" then
+        if unit then Snapshot(unit .. "target") end
+    elseif event == "PLAYER_FOCUS_CHANGED" then
+        Snapshot("focus")
+    elseif event == "UPDATE_MOUSEOVER_UNIT" then
+        Snapshot("mouseover")
+    else
+        Snapshot("target")
+    end
+end)
+C_Timer.NewTicker(1, function()
+    if ADB.phase ~= "IDLE" then Measure.SnapshotNpcs() end
+end)
+
 -- Player → unit distance. Returns distance, isEstimate.
 function Measure.Distance(unit)
     if not UnitExists(unit) then return nil end
@@ -52,9 +109,16 @@ end
 function Measure.DistanceBetween(a, b)
     local ax, ay, ai = Position(a)
     local bx, by, bi = Position(b)
-    if ax and bx and ai == bi then return sqrt((ax - bx) ^ 2 + (ay - by) ^ 2) end
+    if ax and bx then
+        if ai == bi then return sqrt((ax - bx) ^ 2 + (ay - by) ^ 2) end
+        return nil
+    end
+    if UnitIsUnit(a, "player") then return Measure.Distance(b) end
+    if UnitIsUnit(b, "player") then return Measure.Distance(a) end
     local da, db = Measure.Distance(a), Measure.Distance(b)
-    if da and db then return abs(da - db) end
+    if not (da and db) then return nil end
+    if ax or bx then return max(da, db) end -- one exact position only: no bearing, conservative estimate
+    return abs(da - db)                     -- both without coordinates (enemies): lower bound
 end
 
 -- Unit → entry { kind = "P"|"N", id, name } or nil (GM, unknown players are excluded).
@@ -71,27 +135,33 @@ function Measure.UnitEntry(unit)
     return { kind = "N", id = UnitGUID(unit), name = name }
 end
 
--- All living entries within `radius` m of `center` (unit token).
+-- All living entries within `radius` m of `center` (unit token): exact for players, range bands for NPCs.
 function Measure.ZoneAround(center, radius)
+    Measure.SnapshotNpcs()
     local res, seen = {}, {}
-    local function Add(u)
-        if not UnitExists(u) or UnitIsDeadOrGhost(u) then return end
-        local guid = UnitGUID(u)
-        if not guid or seen[guid] then return end
-        local e = Measure.UnitEntry(u)
-        if not e then return end
-        if not UnitIsUnit(u, center) then
-            local d = Measure.DistanceBetween(center, u)
-            if not d or d > radius then return end
-        end
+    local function Add(e, guid)
         seen[guid] = true
         res[#res + 1] = e
     end
-    Add(center)
-    Add("target")
-    Add("player")
-    for _, u in ipairs(ADB.Group.ListUnits()) do Add(u) end
-    for i = 1, 40 do Add("nameplate" .. i) end
+    for _, u in ipairs(Measure.Tokens()) do
+        local guid = UnitExists(u) and not UnitIsDeadOrGhost(u) and UnitGUID(u)
+        if guid and not seen[guid] then
+            local e = Measure.UnitEntry(u)
+            if e then
+                local d = UnitIsUnit(u, center) and 0 or Measure.DistanceBetween(center, u)
+                if d and d <= radius then Add(e, guid) end
+            end
+        end
+    end
+    local dc = Measure.Distance(center)
+    if dc then
+        local now = GetTime()
+        for guid, k in pairs(Measure.known) do
+            if not seen[guid] and now - k.t <= KNOWN_TTL and abs(dc - k.range) <= radius then
+                Add({ kind = "N", id = guid, name = k.name }, guid)
+            end
+        end
+    end
     return res
 end
 
@@ -118,22 +188,34 @@ Net.Register("DG", function(sender, message)
 end)
 
 ------------------------------------------------------------------------------
--- Effects: effect 1 = damage, 2 = heal, 3 = shield (applied by GM / solo, requested otherwise)
+-- Effects: effect 1 = damage, 2 = heal, 3 = shield, 4 = mana (applied by GM / solo, requested otherwise)
 ------------------------------------------------------------------------------
 function Measure.ApplyEffect(effect, value, kind, id, name)
     if kind == "P" then
         local d = ADB.Stats.GetBlock(id)
         if not d or (id == ADB.playerName and ADB.IsGM()) then return end
-        if effect == 1 then ADB.Stats.ApplyValue(id, "hp", d.hp - value)
-        elseif effect == 2 then ADB.Stats.ApplyValue(id, "hp", d.hp + value)
-        else ADB.Stats.ApplyValue(id, "shield", d.shield + value) end
+        if effect == 1 then
+            ADB.Stats.ApplyValue(id, "hp", d.hp - value)
+        elseif effect == 2 then
+            ADB.Stats.ApplyValue(id, "hp", d.hp + value)
+        elseif effect == 3 then
+            ADB.Stats.ApplyValue(id, "shield", d.shield + value)
+        else
+            ADB.Stats.ApplyValue(id, "mp", d.mp + value)
+        end
     else
         local p = ADB.NPC.FindByName(name)
         if p then
             if not ADB.IsGM() then return end
-            if effect == 1 then ADB.NPC.ApplyValue(p.id, "hp", p.hp - value)
-            elseif effect == 2 then ADB.NPC.ApplyValue(p.id, "hp", p.hp + value)
-            else ADB.NPC.ApplyValue(p.id, "shield", (p.shield or 0) + value) end
+            if effect == 1 then
+                ADB.NPC.ApplyValue(p.id, "hp", p.hp - value)
+            elseif effect == 2 then
+                ADB.NPC.ApplyValue(p.id, "hp", p.hp + value)
+            elseif effect == 3 then
+                ADB.NPC.ApplyValue(p.id, "shield", (p.shield or 0) + value)
+            else
+                ADB.NPC.ApplyValue(p.id, "mp", p.mp + value)
+            end
         else
             Measure.AddDamage(id, effect == 1 and value or (effect == 2 and -value or 0))
         end
@@ -155,24 +237,33 @@ Net.Register("EF", function(sender, message)
     if not (ADB.IsGM() and ADB.roster[sender]) then return end
     local p = Net.Split(message)
     local effect, value = tonumber(p[2]), tonumber(p[3])
-    if effect and value and effect >= 1 and effect <= 3 and (p[4] == "P" or p[4] == "N") and p[5] then
+    if effect and value and effect >= 1 and effect <= 4 and (p[4] == "P" or p[4] == "N") and p[5] then
         Measure.ApplyEffect(floor(effect), ADB.Clamp(floor(value), 1, 999), p[4], p[5],
             ADB.CleanName(ADB.Decode(p[6] or "")))
     end
 end)
 
 ------------------------------------------------------------------------------
--- Phases & movement budget
+-- Phases & movement counter
 ------------------------------------------------------------------------------
+Measure.reported = {} -- GM: [player] = metres travelled this turn
+Measure.moveAnnounced = false
+
 function Measure.OnPhase(phase)
+    if phase == "STARTING" or phase == "PLAYER_TURN" then Measure.SnapshotNpcs() end
     if phase == "PLAYER_TURN" then
         movement = { m = 0 }
         movement.x0, movement.y0 = Position("player")
         moveLimit = BASE_MOVE_LIMIT
+        wipe(Measure.reported)
+        Measure.moveAnnounced = false
     elseif phase == "IDLE" then
         movement = nil
         moveLimit = BASE_MOVE_LIMIT
         wipe(Measure.enemyDamage)
+        wipe(Measure.reported)
+        wipe(Measure.known)
+        Measure.moveAnnounced = false
         if ADB.db and ADB.playerName then ADB.UnitFrames.RefreshTarget(false) end
     end
 end
@@ -180,11 +271,57 @@ end
 function Measure.AddMovement(meters)
     if not movement then return false end
     moveLimit = moveLimit + meters
-    movement.info, movement.raid = nil, nil
     return true
 end
 
--- 0.2 s ticker: target distance label + movement counter during the player's turn.
+-- Distance compared to the thresholds (bonus movement shifts them).
+local function Effective() return max(0, movement.m - (moveLimit - BASE_MOVE_LIMIT)) end
+
+-- Wire: "MV;metres" (player→GM), "MA;textEnc" (GM→players)
+function Measure.SendDistance()
+    if ADB.IsGM() or not movement then return end
+    Net.Send(format("MV;%.1f", Effective()))
+end
+
+Net.Register("MV", function(sender, message)
+    if not (ADB.IsGM() and ADB.roster[sender]) then return end
+    local m = tonumber(Net.Split(message)[2])
+    if m then Measure.reported[sender] = ADB.Clamp(m, 0, 99999) end
+end)
+
+-- GM: true if someone sprinted / went over the limit (announces once, turn must then be forced by the GM).
+function Measure.CheckViolations()
+    local sprint, illegal = {}, {}
+    for n, m in pairs(Measure.reported) do
+        local name = ADB.Stats.DisplayName(n)
+        if m > BASE_MOVE_LIMIT * 2 then
+            illegal[#illegal + 1] = name
+        elseif m > BASE_MOVE_LIMIT then
+            sprint[#sprint + 1] = name
+        end
+    end
+    if #sprint + #illegal == 0 then return false end
+    if not Measure.moveAnnounced then
+        Measure.moveAnnounced = true
+        table.sort(sprint)
+        table.sort(illegal)
+        local parts = {}
+        if #sprint > 0 then parts[#parts + 1] = "SPRINT: " .. table.concat(sprint, ", ") end
+        if #illegal > 0 then parts[#parts + 1] = "PLUS QUE 30m: " .. table.concat(illegal, ", ") end
+        local text = ADB.SplitUtf8("Déplacement - " .. table.concat(parts, " - "), 200)[1]
+        Net.Send("MA;" .. ADB.Encode(text))
+        ADB.CombatUI.Alert(text, 1, 0.2, 0.2)
+    end
+    return true
+end
+
+Net.Register("MA", function(sender, message)
+    if not ADB.IsGMName(sender) or ADB.IsGM() then return end
+    local text = ADB.CleanName(ADB.Decode(Net.Split(message)[2] or "")):sub(1, 200)
+    if text ~= "" then ADB.CombatUI.Alert(text, 1, 0.2, 0.2) end
+end)
+
+-- 0.2 s ticker: target distance label + movement counter (kept visible until the end of combat).
 local ticker, acc = CreateFrame("Frame"), 0
 ticker:SetScript("OnUpdate", function(_, elapsed)
     acc = acc + elapsed
@@ -196,29 +333,23 @@ ticker:SetScript("OnUpdate", function(_, elapsed)
     if tf and tf:IsShown() then
         local d, est
         if UnitExists("target") then d, est = Measure.Distance("target") end
-        ADB.UnitFrames.SetDistanceText(d and format(est and "Distance : ~%d m" or "Distance : %d m", floor(d + 0.5)) or "")
+        ADB.UnitFrames.SetDistanceText(d and format(est and "Distance : ~%d m" or "Distance : %d m", floor(d + 0.5)) or
+            "")
     end
 
-    if movement and ADB.phase == "PLAYER_TURN" and not ADB.IsGM() then
-        if not ADB.turnPassed then
-            local x, y = Position("player")
-            if x then
-                if not movement.x0 then movement.x0, movement.y0 = x, y end
-                movement.m = sqrt((x - movement.x0) ^ 2 + (y - movement.y0) ^ 2)
-            end
-            if movement.m >= moveLimit and not movement.info then
-                movement.info = true
-                local msg = format("Vous avez atteint votre limite de %dm ce tour.", moveLimit)
-                ADB.Print(msg)
-                UIErrorsFrame:AddMessage(msg, 1, 0.8, 0.2)
-            end
-            if movement.m >= moveLimit + 1 and not movement.raid then
-                movement.raid = true
-                ADB.Net.Announce(format("%s a dépassé les %dm de déplacement ce tour.",
-                    ADB.Stats.DisplayName(ADB.playerName), moveLimit))
-            end
+    if movement and ADB.phase ~= "IDLE" and not ADB.IsGM() then
+        local x, y = Position("player")
+        if x then
+            if not movement.x0 then movement.x0, movement.y0 = x, y end
+            movement.m = sqrt((x - movement.x0) ^ 2 + (y - movement.y0) ^ 2)
         end
-        ADB.CombatUI.SetMovementText(format("%sDéplacement : %.1f / %d m|r",
-            movement.m >= moveLimit and "|cffff5050" or "", movement.m, moveLimit))
+        local m = Effective()
+        local status, r, g, b = "Déplacement normal", 0.4, 1, 0.4
+        if m > BASE_MOVE_LIMIT * 2 then
+            status, r, g, b = "Illégal", 1, 0.3, 0.3
+        elseif m > BASE_MOVE_LIMIT then
+            status, r, g, b = "Sprint", 1, 0.8, 0.2
+        end
+        ADB.CombatUI.SetMovementText(format("Distance du point de départ : %.1f m", movement.m), status, r, g, b)
     end
 end)
