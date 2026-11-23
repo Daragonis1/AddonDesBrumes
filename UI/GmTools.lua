@@ -4,6 +4,7 @@ local ADB, UI = ADB, ADB.UI
 local floor, abs = math.floor, math.abs
 local format = string.format
 local Clamp, CleanName = ADB.Clamp, ADB.CleanName
+local min = math.min
 
 local GT = {}
 ADB.GmTools = GT
@@ -92,10 +93,11 @@ function GT.LaunchRest()
     if not ADB.IsGM() then return end
     local pct = GT.RestPercent()
     ADB.Net.Send(format("REST;%d", pct))
+    local npcPct = min(100, pct + ADB.RATION_BONUS)
     for _, p in ipairs(ADB.db.npcs) do
         if p.owner then
-            ADB.NPC.ApplyValue(p.id, "hp", math.min(p.maxHp, p.hp + floor(p.maxHp * pct / 100 + 0.5)))
-            ADB.NPC.ApplyValue(p.id, "mp", math.min(p.maxMp, p.mp + floor(p.maxMp * pct / 100 + 0.5)))
+            ADB.NPC.ApplyValue(p.id, "hp", math.min(p.maxHp, p.hp + floor(p.maxHp * npcPct / 100 + 0.5)))
+            ADB.NPC.ApplyValue(p.id, "mp", math.min(p.maxMp, p.mp + floor(p.maxMp * npcPct / 100 + 0.5)))
         end
     end
     ADB.Print(format("Repos lancé : %d%% des PV et PM restaurés (+%d%% avec Ration).", pct, ADB.RATION_BONUS))
@@ -213,6 +215,7 @@ function GT.AddEnemy(boss)
     if boss then MakeBoss(e) end
     SendChatMessage(".npc emote 375 repeat", "SAY")
     ADB.Print(label .. (boss and " ajouté aux ennemis (Boss)." or " ajouté aux ennemis."))
+    ADB.Measure.SnapshotNpcs()
     ADB.CombatUI.Refresh()
 end
 
@@ -229,6 +232,11 @@ function GT.RemoveEnemy(key)
             return
         end
     end
+end
+
+function GT.RemoveEnemyTarget()
+    if not ADB.IsGM() or not UnitExists("target") then return end
+    GT.RemoveEnemy("E:" .. (UnitGUID("target") or ""))
 end
 
 function GT.SaveAction()
