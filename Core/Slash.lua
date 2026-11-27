@@ -14,7 +14,7 @@ function Slash.Register(names, fn)
 end
 
 local HELP = "Commandes : /brumes (fiche), /brumes fiche [nom], /brumes nom [Nom RP], "
-    .. "/brumes inv, /brumes objet, /brumes pnj, /brumes mj (XP), /brumes repos, /brumes talents, /brumes ui"
+    .. "/brumes inv, /brumes objet, /brumes pnj, /brumes mj (XP), /brumes repos, /brumes talents, /brumes metier, /brumes ui"
 
 SlashCmdList["ADDONDESBRUMES"] = function(msg)
     local cmd, rest = (msg or ""):match("^(%S*)%s*(.-)$")

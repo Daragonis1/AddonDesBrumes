@@ -46,7 +46,7 @@ function AB.OnClick(b)
     local data = { id = n.id, targetName = T.TargetName() }
     if UnitExists("target") then
         if n.aoe > 0 then
-            data.targets = ADB.Measure.ZoneTargets(n.aoe)
+            data.targets = T.FilterTargets(n, ADB.Measure.ZoneTargets(n.aoe))
         else
             local e = ADB.Measure.UnitEntry("target")
             if e then data.targets = { e } end
@@ -60,7 +60,7 @@ function AB.OnClick(b)
     local suffix = data.targetName and (" sur " .. data.targetName) or ""
     if n.aoe > 0 then
         local l = T.NamesOf(data.targets)
-        suffix = suffix .. n.aoe
+        suffix = (l ~= "") and (" sur " .. l) or suffix
     end
     StaticPopup_Show("ADB_TAL_UTILISER", n.name, suffix, data)
 end

@@ -83,8 +83,12 @@ function CW.Refresh()
     local isGM = ADB.IsGM()
     local gmButtons = { f.ItemButton, f.GmButton, f.NpcButton, f.TargetSheetButton }
     local list = { f.TalentButton, f.InventoryButton }
+    f.ProfessionButton:SetShown(not isGM)
     f.PetButton:SetShown(not isGM)
-    if not isGM then list[#list + 1] = f.PetButton end
+    if not isGM then
+        list[#list + 1] = f.ProfessionButton
+        list[#list + 1] = f.PetButton
+    end
     for _, b in ipairs(gmButtons) do
         b:SetShown(isGM)
         if isGM then list[#list + 1] = b end

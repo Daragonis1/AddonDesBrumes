@@ -42,6 +42,12 @@ function Alt.WithContext(to, fn, ...)
     return a, b, c
 end
 
+-- Has the main (false) / alt (true) character spent its action this turn?
+function Alt.Passed(alt)
+    if (ADB.altContext and true or false) == alt then return ADB.turnPassed and true or false end
+    return records[alt].turnPassed and true or false
+end
+
 local function AltNpc() return ADB.mainName and ADB.Pets.FindAlt(ADB.mainName) end
 
 -- Alt context: pushes state to the GM (+ local copy of the received NPC).
@@ -219,7 +225,7 @@ local function Prepare()
     if not ADB.altChar then return end
     local P = setmetatable({}, {
         __index = function(_, k)
-            if k == "rpName" then return a.rpName end
+            if k == "rpName" or k == "giant" then return a[k] end
             local v = a[k]
             if v == nil then v = D[k] end
             return v
@@ -444,7 +450,7 @@ hooksecurefunc(ADB.ConfigWindow, "Refresh", function()
     f.AltBtn:SetShown(on)
     if on then
         f.AltBtn:ClearAllPoints()
-        f.AltBtn:SetPoint("BOTTOM", f, "BOTTOM", 0, 104)
+        f.AltBtn:SetPoint("BOTTOM", f, "BOTTOM", 0, 132)
         f:SetHeight(f:GetHeight() + 28)
     end
 end)
@@ -501,6 +507,7 @@ ADB.Wrap(ADB.Combat, "PlayerEndTurn", function(orig)
     if ADB.altContext then
         ADB.turnPassed = true
         ADB.ActionBar.Refresh()
+        if ADB.Combat.AllActed() then Alt.WithContext(false, orig) end
         return
     end
     return orig()

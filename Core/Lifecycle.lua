@@ -17,6 +17,7 @@ function ADB.RefreshAll()
     ADB.ConfigWindow.Refresh()
     ADB.ConfigWindow.RefreshSheet()
     ADB.InventoryWindow.Refresh()
+    ADB.ProfessionUI.Refresh()
     if ADB.itemFrame and ADB.itemFrame:IsShown() then ADB.ItemCreator.Refresh() end
     ADB.CombatUI.Refresh()
     ADB.Talents.Refresh()

@@ -17,3 +17,4 @@ ADB.npcSource       = nil
 ADB.dirtyNpcs       = {}      -- NPC ids pending broadcast
 ADB.hpAggregates    = {}      -- debounced HP/shield chat announcements
 ADB.memberRows      = 0
+ADB.extraAction     = nil     -- Potion de vitesse : la prochaine action ne termine pas le tour

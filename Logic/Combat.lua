@@ -10,6 +10,7 @@ local PHASE_CMD = {}
 for cmd, phase in pairs(ADB.PHASE_BY_CMD) do PHASE_CMD[phase] = cmd end
 
 ADB.combatEnemies, ADB.npcPlayed, ADB.cbSelected = {}, {}, nil
+local cdSent = false -- "CD" already sent this player turn
 
 -- Post-phase listeners (registered in TOC order). fn(phase)
 local listeners = {}
@@ -67,6 +68,7 @@ end
 local function Apply(phase)
     if phase == "IDLE" and ADB.phase == "IDLE" then return end
     ADB.phase = phase
+    ADB.extraAction = nil
     ADB.cbSelected = nil
     if phase == "ALLY_TURN" or phase == "ENEMY_TURN" then ADB.npcPlayed = {} end
     if phase == "IDLE" then ADB.npcPlayed, ADB.combatEnemies = {}, {} end
@@ -85,6 +87,7 @@ local function Apply(phase)
     if phase == "PLAYER_TURN" then
         ADB.finishedPlayers = {}
         ADB.turnPassed = false
+        cdSent = false
         ADB.CombatUI.SetEndTurnEnabled(true)
     end
     ADB.Measure.OnPhase(phase)
@@ -208,12 +211,54 @@ function Combat.End()
     BroadcastPhase("IDLE")
 end
 
+-- True when main, pet and alt can no longer act this turn.
+function Combat.AllActed()
+    local Alt = ADB.Alt
+    if not Alt.Passed(false) then return false end
+    if ADB.altChar and not Alt.Passed(true) then return false end
+    local pet = ADB.Pets.GetPet()
+    for _, sk in ipairs(pet and ADB.Pets.Skills(pet) or {}) do
+        if ADB.Pets.GetState(pet, sk) then return false end
+    end
+    return true
+end
+
+-- Action spent by the current unit: the turn ends only once nobody else can act.
+function Combat.ActionDone()
+    if ADB.extraAction then -- Potion de vitesse : cette action est gratuite
+        ADB.extraAction = nil
+        ADB.CombatUI.Refresh()
+        ADB.ActionBar.Refresh()
+        return
+    end
+    ADB.turnPassed = true
+    if Combat.AllActed() then return Combat.PlayerEndTurn() end
+    ADB.CombatUI.Refresh()
+    ADB.ActionBar.Refresh()
+end
+
 -- Player side
 function Combat.PlayerEndTurn()
     ADB.turnPassed = true
-    ADB.Measure.SendDistance()
-    Net.Send("CD")
+    if not cdSent then
+        cdSent = true
+        ADB.Measure.SendDistance()
+        Net.Send("CD")
+    end
     ADB.CombatUI.SetEndTurnEnabled(false)
     ADB.CombatUI.Refresh()
     ADB.ActionBar.Refresh()
+end
+
+-- Potion de vitesse : rend l'action déjà jouée, ou réserve une action gratuite. False si la fin de tour est partie.
+function Combat.GrantExtraAction()
+    if ADB.phase ~= "PLAYER_TURN" or cdSent or ADB.extraAction then return false end
+    if ADB.turnPassed then
+        ADB.turnPassed = false
+        ADB.CombatUI.Refresh()
+        ADB.ActionBar.Refresh()
+    else
+        ADB.extraAction = true
+    end
+    return true
 end

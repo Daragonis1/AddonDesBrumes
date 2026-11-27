@@ -8,10 +8,6 @@ hit: cd "#KillOrder" 1
 E.DefineTag("ReducCDTraqueffroi", [[
 hit: cd "#Traqueffroi" 1
 ]])
-E.Define("Aspect de la tortue", [[
-hit [pet]: shield self 6; shield pet 6
-hit [!pet]: shield self 3; shield target 3
-]])
 E.Define("Rossée", [[
 hit: damage zonepet:10 3
 ]])
@@ -44,4 +40,13 @@ use: avatar
 ]])
 E.DefineTag("Nikratak", [[
 hit: nikratak
+]])
+E.DefineTag("TurtleAspect", [[
+hit: turtle
+]])
+E.DefineTag("Traqueffroi", [[
+use: spawn 123456789
+]])
+E.DefineTag("Ravager", [[
+use: spawn 234567891
 ]])

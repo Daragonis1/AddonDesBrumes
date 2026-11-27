@@ -128,7 +128,7 @@ function BU.RefreshWindow()
         if d then
             r.ic:SetTexture(ADB.IconTexture(d.icon))
             local detail = ""
-            if d.buffType <= 2 then
+            if d.buffType <= 2 or (d.buffType ~= T.RESIST and d.buffType ~= T.BOSS and d.value > 0) then
                 detail = ", " .. d.value
             elseif d.buffType == T.RESIST then
                 detail = ", " .. (ADB.TALENT.ELEMENTS[d.value] or "?")

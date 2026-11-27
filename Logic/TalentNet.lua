@@ -177,7 +177,7 @@ local function HandleApproval(cmd, sender, p)
         if n then
             local inTurn = req.force and ADB.phase == "PLAYER_TURN" and not ADB.turnPassed
             if Talents.Execute(n, req, not inTurn) and inTurn and not n.bonusAction then
-                ADB.Combat.PlayerEndTurn()
+                ADB.Combat.ActionDone()
             end
         end
     end
@@ -276,7 +276,7 @@ function TalentNet.Receive(cmd, sender, message)
                 specTagX = p[9],
                 specTagY = p[10],
                 tags = p[11],
-                buffId = p[12], 
+                buffId = p[12],
                 specReq = p[13]
             })
         end

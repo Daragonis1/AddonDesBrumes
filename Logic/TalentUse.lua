@@ -16,6 +16,24 @@ local function NamesOf(list)
     return table.concat(t, ", ")
 end
 Talents.NamesOf = NamesOf
+-- AoE targets filtered by the skill's ExcludeCaster / ExcludePet / ExcludeEnemy tags.
+function Talents.FilterTargets(n, targets)
+    local noSelf, noPet, noEnemy = Talents.HasTag(n, "excludecaster"), Talents.HasTag(n, "excludepet"),
+        Talents.HasTag(n, "excludeenemy")
+    if not (noSelf or noPet or noEnemy) then return targets end
+    local pet, out = ADB.Pets.GetPet(), {}
+    for _, e in ipairs(targets or {}) do
+        local isSelf = (e.kind == "P" and e.id == ADB.playerName) or (e.kind == "N" and e.name == ADB.playerName)
+        local isPet = pet and e.kind == "N" and (e.id == tostring(pet.id) or e.name == pet.name)
+        local isEnemy = false
+        if e.kind == "N" then
+            local p = ADB.NPC.FindByName(e.name)
+            isEnemy = not (p and p.ally)
+        end
+        if not ((noSelf and isSelf) or (noPet and isPet) or (noEnemy and isEnemy)) then out[#out + 1] = e end
+    end
+    return out
+end
 
 function Talents.TargetName()
     if not UnitExists("target") then return nil end
@@ -161,7 +179,7 @@ function Talents.AfterConfirm(data)
     local n = data and Talents.GetNode(data.id)
     if not n then return end
     if ADB.phase == "PLAYER_TURN" and not ADB.turnPassed then
-        if Talents.Execute(n, data, false) and not n.bonusAction then ADB.Combat.PlayerEndTurn() end
+        if Talents.Execute(n, data, false) and not n.bonusAction then ADB.Combat.ActionDone() end
     else
         StaticPopup_Show("ADB_TAL_HORSTOUR", n.name, nil, data)
     end

@@ -8,7 +8,7 @@ local Clamp, Encode, Decode, CleanName = ADB.Clamp, ADB.Encode, ADB.Decode, ADB.
 
 local Pets = {}
 ADB.Pets = Pets
-Pets.used = nil   -- pet already acted this turn
+Pets.used = nil -- pet already acted this turn
 
 function Pets.FindByOwner(owner)
     for _, x in ipairs(ADB.NPC.List()) do
@@ -60,6 +60,7 @@ function Pets.Sync(force)
     lastSig, lastTime = sig, t
     Net.Send("PS;" .. sig)
 end
+
 hooksecurefunc(ADB.Sync, "SendState", function() Pets.Sync() end)
 
 function Pets.ResetSync() lastSig = nil end
@@ -163,6 +164,7 @@ function Pets.UseSkill(i)
     end
     ADB.Net.Announce(msg)
     ADB.PetUI.Refresh()
+    if ADB.turnPassed and ADB.Combat.AllActed() then ADB.Combat.PlayerEndTurn() end
 end
 
 ------------------------------------------------------------------------------
@@ -188,14 +190,15 @@ function Pets.Init()
     else
         db.secondary = nil
     end
-    db.pet = nil   -- legacy field
-    for _, p in ipairs(db.npcs) do   -- migration: legacy pets
+    db.pet = nil                   -- legacy field
+    for _, p in ipairs(db.npcs) do -- migration: legacy pets
         if p.owner and p.owner:sub(1, 1) ~= "+" and not ADB.PET_TYPES[p.petType or ""] then
             p.owner, p.petType = nil, nil
         end
     end
     ADB.PetUI.Refresh()
 end
+
 ADB.Events.Register("PLAYER_LOGIN", Pets.Init)
 
 ADB.Slash.Register("pet", function() ADB.PetUI.ToggleMenu() end)

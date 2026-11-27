@@ -325,6 +325,21 @@ COMMANDS.nikratak = function(ctx)
     ctx.msgs[#ctx.msgs + 1] = format("%s récupère %d PV et %d PM.", ctx.who, g, g)
 end
 
+COMMANDS.turtle = function(ctx)
+    local m = ADB.Stats.GetBlock(ADB.playerName).agilityMult
+    local t, pet = ctx.data.targets, ADB.Pets.GetPet()
+    local first = t and t[1]
+    local isPet = (pet and first and first.kind == "N"
+        and (first.name == pet.name or first.name == ADB.NPC.DisplayName(pet))) and true or false
+    Apply(ctx, "self", 3, max(1, floor(3 * m + 0.5)) * ctx.mult)
+    Apply(ctx, "target", 3, max(1, floor((isPet and 6 or 3) * m + 0.5)) * ctx.mult)
+end
+
+COMMANDS.spawn = function(_, a)
+    local id = tonumber(a[2])
+    if id then SendChatMessage(".npc spawn " .. floor(id), "SAY") end
+end
+
 local function Run(rules, ctx)
     local hit = not (ctx.roll and ctx.roll.failed)
     for _, l in ipairs(rules) do
@@ -478,6 +493,16 @@ local function GainMana(g, source)
     end
 end
 
+local FELHOUND = "Felhound"
+
+-- carnivorouspack: +1 x Int mult PV and PM per trigger.
+local function CarnivorousGain(times)
+    if ADB.IsGM() or times <= 0 or not LearnedByTag("carnivorouspack") then return end
+    local g = max(1, floor(ADB.Stats.GetBlock(ADB.playerName).intellectMult + 0.5)) * times
+    Heal(g)
+    GainMana(g, "Meute carnivore")
+end
+
 local function PetHitSource()
     local n = LearnedByTag("famhit")
     if n then return n end
@@ -494,6 +519,7 @@ function Effects.OnPetHit(p)
         local d = ADB.Stats.GetBlock(ADB.playerName)
         Heal(max(1, floor(d.intellectMult + 0.5)))
     end
+    if p.petType == "Traqueur Corrompu" then CarnivorousGain(1) end
 end
 
 local function IsAllyKey(key)
@@ -526,6 +552,26 @@ ADB.Combat.OnPhase(function(phase)
     local g = max(1, floor(d.intellectMult + 0.5))
     if LearnedByTag("healonhounddamage") then Heal(g * count) end
     if PetHitSource() then GainMana(g * count, "Hound") end
+end)
+
+-- carnivorouspack: end of enemy turn, own Traqueffroi / Ravager damaging debuffs on enemies.
+local packPrev = "IDLE"
+ADB.Combat.OnPhase(function(phase)
+    local prev = packPrev
+    packPrev = phase
+    if prev ~= "ENEMY_TURN" or phase == prev or phase == "IDLE" or ADB.IsGM() then return end
+    local count = 0
+    for key, list in pairs(ADB.Buffs.active) do
+        if not IsAllyKey(key) then
+            for _, b in ipairs(list) do
+                if b.origin == ADB.playerName and ADB.Buffs.DealsDamage(b)
+                    and (ADB.Buffs.HasTag(b, "traqueffroi") or ADB.Buffs.HasTag(b, "ravager")) then
+                    count = count + 1
+                end
+            end
+        end
+    end
+    CarnivorousGain(count)
 end)
 
 -- wyrmshot: end of enemy turn, +[X] mana per enemy still carrying a "wyrmshot" debuff applied by the player.

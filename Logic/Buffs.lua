@@ -34,6 +34,13 @@ local MAX_DEFS, PER_TARGET = 999, 8
 Buffs.MAX_DEFS = MAX_DEFS
 local IMMUNE = { [T.ROOT] = true, [T.STUN] = true, [T.SILENCE] = true, [T.DISADVANTAGE] = true }
 
+-- Hybrid damage: any buff type except Heal / Resist (value = element) / Boss deals its value as damage.
+function Buffs.DealsDamage(b)
+    local t = b.buffType
+    if t == T.DAMAGE then return true end
+    return t ~= T.HEAL and t ~= T.RESIST and t ~= T.BOSS and (b.value or 0) > 0
+end
+
 Buffs.active = {} -- [key] = { instance… }
 Buffs.tmp = {}    -- partial BF reception
 Buffs.tags = {}   -- [buffId] = tags (received from GM)
@@ -305,7 +312,10 @@ end
 
 function Buffs.ApplyDef(def, key, bonus, mult, origin)
     local value = def.value
-    if def.buffType <= 2 then value = Clamp(floor((def.value + (bonus or 0)) * (mult or 1) + 0.5), 0, 999) end
+    if def.buffType ~= T.RESIST and def.buffType ~= T.BOSS then
+        value = Clamp(
+            floor((def.value + (bonus or 0)) * (mult or 1) + 0.5), 0, 999)
+    end
     return Buffs.Apply(key, {
         id = def.id,
         left = def.duration,
@@ -329,7 +339,7 @@ function Buffs.Request(id, bonus, mult, key)
 end
 
 function Buffs.Process(id, bonus, mult100, key, origin)
-    if id == Buffs.BOSS_ID then
+    if id == -1 then
         return Buffs.Apply(key, {
             id = -1,
             left = Clamp(bonus, 1, 3),
@@ -339,7 +349,7 @@ function Buffs.Process(id, bonus, mult100, key, origin)
             name = "Étourdissement"
         })
     end
-    if id == Buffs.BOSS_ID and not Buffs.GetDef(id) then
+    if id == Buffs.BOSS_ID then
         return Buffs.Apply(key, {
             id = id,
             left = 99,
@@ -430,9 +440,9 @@ end
 ------------------------------------------------------------------------------
 -- Per-turn resolution (GM): damage/heal over time, duration countdown
 ------------------------------------------------------------------------------
-local function ResolveEffect(key, b)
+local function ResolveEffect(key, b, haunted)
     local kind, id = key:sub(1, 1), key:sub(3)
-    local delta = b.buffType == T.DAMAGE and -b.value or b.value
+    local delta = (b.buffType == T.HEAL) and b.value or -(b.value + (haunted and 1 or 0))
     if kind == "P" then
         local d = ADB.Stats.GetBlock(id)
         if d and id ~= ADB.playerName then ADB.Stats.ApplyValue(id, "hp", d.hp + delta) end
@@ -455,9 +465,16 @@ local function Resolve(allies)
             isAlly = p and p.ally or false
         end
         if isAlly == allies then
+            local haunted = false
+            for _, x in ipairs(list) do
+                if Buffs.HasTag(x, "haunt") then
+                    haunted = true
+                    break
+                end
+            end
             for i = #list, 1, -1 do
                 local b = list[i]
-                if b.buffType <= 2 then ResolveEffect(key, b) end
+                if b.buffType == T.HEAL or Buffs.DealsDamage(b) then ResolveEffect(key, b, haunted) end
                 if b.buffType ~= T.BOSS then
                     b.left = b.left - 1
                     if b.left <= 0 then table.remove(list, i) end

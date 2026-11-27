@@ -30,9 +30,14 @@ function Items.Validate(t)
     local name = CleanName(t.name)
     if name == "" then name = "Objet" end
     if t.kind == "story" then
-        return { kind = "story", rarity = Clamp(floor(tonumber(t.rarity) or 1), 1, #ADB.RARITIES),
-            icon = ADB.SanitizeIcon(t.icon), name = name, desc = CleanName(t.desc):sub(1, 400),
-            tags = ADB.Talents.SanitizeTags(t.tags) }
+        return {
+            kind = "story",
+            rarity = Clamp(floor(tonumber(t.rarity) or 1), 1, #ADB.RARITIES),
+            icon = ADB.SanitizeIcon(t.icon),
+            name = name,
+            desc = CleanName(t.desc):sub(1, 400),
+            tags = ADB.Talents.SanitizeTags(t.tags)
+        }
     end
     if t.kind ~= "equip" or not ADB.SLOT_LABEL[t.slot] then return nil end
     local rarity = Clamp(floor(tonumber(t.rarity) or 1), 1, #ADB.RARITIES)
@@ -42,15 +47,27 @@ function Items.Validate(t)
         total = total + stats[i]
     end
     if total > ADB.RARITIES[rarity].statCap then return nil end
-    return { kind = "equip", slot = t.slot, rarity = rarity, stats = stats, icon = ADB.SanitizeIcon(t.icon),
-        name = name, skillsText = CleanName(t.skillsText), skillIds = Items.SanitizeSkillIds(t.skillIds),
-        tags = ADB.Talents.SanitizeTags(t.tags) }
+    return {
+        kind = "equip",
+        slot = t.slot,
+        rarity = rarity,
+        stats = stats,
+        icon = ADB.SanitizeIcon(t.icon),
+        name = name,
+        skillsText = CleanName(t.skillsText),
+        skillIds = Items.SanitizeSkillIds(t.skillIds),
+        tags = ADB.Talents.SanitizeTags(t.tags)
+    }
 end
 
 -- Returns name, texture, r, g, b, hex.
 function Items.Info(it)
     local def = ADB.CONSUMABLES[it.kind]
-    if def then return def.name, ADB.IconTexture(def.icon), 0.5, 0.5, 0.5, "ffffff" end
+    if def then
+        local R = def.rarity and ADB.RARITIES[def.rarity]
+        if R then return def.name, ADB.IconTexture(def.icon), R.color[1], R.color[2], R.color[3], R.hex end
+        return def.name, ADB.IconTexture(def.icon), 0.5, 0.5, 0.5, "ffffff"
+    end
     local R = ADB.RARITIES[it.rarity]
     return it.name, ADB.IconTexture(it.icon), R.color[1], R.color[2], R.color[3], R.hex
 end
@@ -132,15 +149,50 @@ function Items.RemoveAt(i)
     if s.count and s.count > 1 then s.count = s.count - 1 else ADB.db.inventory[i] = nil end
 end
 
-function Items.RemoveConsumable(kind)
+function Items.CountConsumable(kind)
+    local n = 0
     for i = 1, ADB.INV_SLOTS do
         local s = ADB.db.inventory[i]
-        if s and s.kind == kind then
-            Items.RemoveAt(i)
-            return true
+        if s and s.kind == kind then n = n + (s.count or 1) end
+    end
+    return n
+end
+
+-- Removes `n` units of a consumable (all or nothing).
+function Items.Spend(kind, n)
+    if Items.CountConsumable(kind) < n then return false end
+    for _ = 1, n do Items.RemoveConsumable(kind) end
+    return true
+end
+
+-- True if `qty` of consumable `kind` fits once `cost` ({ { kind, n } }) has been spent (stacks + freed slots).
+function Items.CanFit(kind, qty, cost)
+    local t = {}
+    for i = 1, ADB.INV_SLOTS do
+        local s = ADB.db.inventory[i]
+        t[i] = s and { kind = s.kind, count = s.count or 1 } or false
+    end
+    for _, c in ipairs(cost or {}) do
+        local left = c[2]
+        for i = 1, ADB.INV_SLOTS do
+            local s = t[i]
+            if s and s.kind == c[1] and left > 0 then
+                local take = math.min(left, s.count)
+                s.count, left = s.count - take, left - take
+                if s.count <= 0 then t[i] = false end
+            end
         end
     end
-    return false
+    local room, stack = 0, ADB.CONSUMABLES[kind].stack
+    for i = 1, ADB.INV_SLOTS do
+        local s = t[i]
+        if not s then
+            room = room + stack
+        elseif s.kind == kind then
+            room = room + math.max(0, stack - s.count)
+        end
+    end
+    return room >= qty
 end
 
 function Items.Equip(i)
@@ -198,29 +250,75 @@ end
 ------------------------------------------------------------------------------
 -- Potions (= an action)
 ------------------------------------------------------------------------------
+-- Revives the targeted player (or self) at 0 HP with 1 HP.
+function Items.Revive()
+    local name = ADB.Group.GetTargetPlayer() or ADB.playerName
+    local d = ADB.Stats.GetBlock(name)
+    if not d or d.hp > 0 then
+        ADB.Print("La cible n'est pas morte.")
+        return false
+    end
+    if name == ADB.playerName then
+        ADB.Stats.ApplyValue(name, "hp", 1, true, true)
+    else
+        ADB.Measure.SendEffects({ { kind = "P", id = name, name = ADB.Stats.DisplayName(name) } }, 2, 1)
+    end
+    ADB.Net.Announce(format("%s ressuscite %s avec 1 PV.", ADB.Stats.DisplayName(ADB.playerName),
+        ADB.Stats.DisplayName(name)))
+    return true
+end
+
 function Items.UsePotion(i)
     local s = ADB.db.inventory[i]
-    if not s or (s.kind ~= "potvie" and s.kind ~= "potmana") then return end
+    local def = s and ADB.CONSUMABLES[s.kind]
+    local u = def and def.use
+    if not u then return end
+    local db, d = ADB.db, ADB.Stats.GetBlock(ADB.playerName)
+    local text, hpGain
+    if u.hp or u.mp then
+        local kind = u.hp and "hp" or "mp"
+        local new = math.min(d[ADB.Stats.MAX_KEY[kind]], d[kind] + (u.hp or u.mp))
+        db[kind] = new
+        text = format("+%d %s", new - d[kind], u.hp and "PV" or "PM")
+        if u.hp then hpGain = new - d.hp end
+    elseif u.shield then
+        db.shield = math.min(ADB.SHIELD_MAX, (db.shield or 0) + u.shield)
+        text = format("+%d de bouclier", u.shield)
+    elseif u.giant then
+        if db.giant then
+            ADB.Print("Vous êtes déjà sous l'effet d'une Potion de taille de géant.")
+            return
+        end
+        ADB.Stats.ModifySheet(function(sheet) sheet.giant = true end)
+        text = format("+%d Force jusqu'au prochain repos", u.giant)
+    elseif u.haste then
+        if not ADB.Combat.GrantExtraAction() then
+            ADB.Print("La potion de vitesse ne peut pas être utilisée maintenant (pendant votre tour uniquement).")
+            return
+        end
+        text = "vous pouvez rejouer une action"
+    elseif u.revive then
+        if not Items.Revive() then return end
+        text = "résurrection"
+    else
+        return
+    end
     Items.RemoveAt(i)
-    local kind = (s.kind == "potvie") and "hp" or "mp"
-    local d = ADB.Stats.GetBlock(ADB.playerName)
-    local new = math.min(d[ADB.Stats.MAX_KEY[kind]], d[kind] + ADB.POTION_RESTORE)
-    ADB.db[kind] = new
-    ADB.Print(format("Vous utilisez %s : +%d %s.", ADB.CONSUMABLES[s.kind].name, new - d[kind],
-        kind == "hp" and "PV" or "PM"))
+    ADB.Print(format("Vous utilisez %s : %s.", def.name, text))
     ADB.Sync.AfterLocalChange()
-    if kind == "hp" then
-        ADB.Stats.TrackHp("J:" .. ADB.playerName, ADB.Stats.DisplayName(ADB.playerName), new - d.hp)
+    if hpGain then
+        ADB.Stats.TrackHp("J:" .. ADB.playerName, ADB.Stats.DisplayName(ADB.playerName), hpGain)
     end
 end
 
 function Items.RequestPotion(i)
     local s = ADB.db.inventory[i]
-    if not s then return end
-    if ADB.phase == "IDLE" or ADB.IsGM() then return Items.UsePotion(i) end
+    local u = s and ADB.CONSUMABLES[s.kind] and ADB.CONSUMABLES[s.kind].use
+    if not u then return end
+    if u.haste or ADB.phase == "IDLE" or ADB.IsGM() then return Items.UsePotion(i) end -- haste = bonus, not an action
     if ADB.phase == "PLAYER_TURN" and not ADB.turnPassed then
         Items.UsePotion(i)
-        ADB.Combat.PlayerEndTurn()
+        ADB.Combat.ActionDone()
     else
         StaticPopup_Show("ADB_TAL_HORSTOUR", ADB.CONSUMABLES[s.kind].name, nil, { potion = i })
     end

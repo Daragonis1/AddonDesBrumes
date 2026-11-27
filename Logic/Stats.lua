@@ -29,6 +29,7 @@ function Stats.EquipmentBonus(sheet)
             end
         end
     end
+    if sheet.giant then e[1] = e[1] + ADB.GIANT_BONUS end -- Potion de taille de géant (Force)
     return e
 end
 
@@ -164,7 +165,8 @@ end
 
 function Stats.ReceiveRest(pct)
     pct = Clamp(floor(pct), 0, 100)
-    if ADB.altContext then     -- le secondaire est géré par le MJ (PNJ possédé, bonus ration inclus)
+    if ADB.db.giant then Stats.ModifySheet(function(db) db.giant = nil end) end
+    if ADB.altContext then -- le secondaire est géré par le MJ (PNJ possédé, bonus ration inclus)
         ADB.Talents.OnRest()
         ADB.Sync.AfterLocalChange()
         return

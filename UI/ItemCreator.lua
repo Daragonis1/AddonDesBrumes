@@ -51,8 +51,14 @@ function IC.CreateEquipment()
         return
     end
     local it = ADB.Items.Validate({
-        kind = "equip", slot = f.slot, rarity = f.rarity, stats = stats, icon = f.icon, name = name,
-        skillsText = f.SkillsTextEdit:GetText(), skillIds = f.SkillIdsEdit:GetText(),
+        kind = "equip",
+        slot = f.slot,
+        rarity = f.rarity,
+        stats = stats,
+        icon = f.icon,
+        name = name,
+        skillsText = f.SkillsTextEdit:GetText(),
+        skillIds = f.SkillIdsEdit:GetText(),
         tags = f.TagsEdit and f.TagsEdit:GetText() or "",
     })
     if it then ADB.Items.Send(target, it, 1) end
@@ -63,6 +69,7 @@ function IC.GiveConsumable(kind)
         ADB.Print("Seul le MJ peut donner des objets.")
         return
     end
+    if not ADB.CONSUMABLES[kind or ""] then return end
     local target = ADB.Group.GetTargetPlayer()
     if not target then
         ADB.Print("Ciblez un joueur possédant l'addon.")
@@ -164,9 +171,25 @@ function IC.Create()
     UI.Label(f, "Objets virtuels  -  Qté", 20, -388, "GameFontNormalSmall")
     f.QtyEdit = UI.Input(f, 170, -385, 36, 2, true)
     f.QtyEdit:SetText("1")
-    UI.Button(f, "Potion de Vie", 12, -412, 100, function() IC.GiveConsumable("potvie") end)
-    UI.Button(f, "Potion de mana", 114, -412, 106, function() IC.GiveConsumable("potmana") end)
-    UI.Button(f, "Ration", 222, -412, 80, function() IC.GiveConsumable("ration") end)
+    f.consumable = "potvie"
+    local function ConsumableText(k) return ADB.Items.ColoredName({ kind = k }) end
+    f.ConsumDrop = CreateFrame("Frame", "ADBItemConsDrop", f, "UIDropDownMenuTemplate")
+    f.ConsumDrop:SetPoint("TOPLEFT", 8, -404)
+    UIDropDownMenu_SetWidth(f.ConsumDrop, 150)
+    UIDropDownMenu_Initialize(f.ConsumDrop, function(_, level)
+        for _, k in ipairs(ADB.CONSUMABLE_ORDER) do
+            local info = UIDropDownMenu_CreateInfo()
+            info.text = ConsumableText(k)
+            info.checked = (f.consumable == k)
+            info.func = function()
+                f.consumable = k
+                UIDropDownMenu_SetText(f.ConsumDrop, ConsumableText(k))
+            end
+            UIDropDownMenu_AddButton(info, level)
+        end
+    end)
+    UIDropDownMenu_SetText(f.ConsumDrop, ConsumableText(f.consumable))
+    UI.Button(f, "Donner", 222, -410, 80, function() IC.GiveConsumable(f.consumable) end)
     UI.Label(f, "Skills d'équipement (IDs, ex: 3,7)", 20, -438, "GameFontNormalSmall")
     f.SkillIdsEdit = UI.Input(f, 24, -456, 268, 20)
 
@@ -227,8 +250,14 @@ function IC.CreateStoryWindow()
             ADB.Print("Ciblez un joueur possédant l'addon.")
             return
         end
-        local it = ADB.Items.Validate({ kind = "story", rarity = f.rarity, icon = f.icon, name = name,
-            desc = f.DescEdit:GetText(), tags = f.TagsEdit:GetText() })
+        local it = ADB.Items.Validate({
+            kind = "story",
+            rarity = f.rarity,
+            icon = f.icon,
+            name = name,
+            desc = f.DescEdit:GetText(),
+            tags = f.TagsEdit:GetText()
+        })
         if not it then return end
         if target == ADB.playerName then
             ADB.Items.Receive(it, 1)

@@ -7,7 +7,7 @@ local format = string.format
 
 local IW = {}
 ADB.InventoryWindow = IW
-ADB.selection = nil   -- { zone, key } of the selected slot
+ADB.selection = nil -- { zone, key } of the selected slot
 
 local function CreateSlot(parent, zone, key, x, y, size)
     local b = CreateFrame("Button", nil, parent)
@@ -112,7 +112,12 @@ end
 ------------------------------------------------------------------------------
 StaticPopupDialogs["ADB_DETRUIRE"] = {
     text = "Détruire définitivement %s ?\nCette action est irréversible.",
-    button1 = YES, button2 = NO, timeout = 0, whileDead = 1, hideOnEscape = 1, preferredIndex = 3,
+    button1 = YES,
+    button2 = NO,
+    timeout = 0,
+    whileDead = 1,
+    hideOnEscape = 1,
+    preferredIndex = 3,
     OnAccept = function(_, data)
         if data and ADB.Items.GetAt(data.zone, data.key) then ADB.Items.Destroy(data.zone, data.key) end
     end,
@@ -120,7 +125,12 @@ StaticPopupDialogs["ADB_DETRUIRE"] = {
 
 StaticPopupDialogs["ADB_POTION"] = {
     text = "Utiliser %s ?\n%s",
-    button1 = YES, button2 = NO, timeout = 0, whileDead = 1, hideOnEscape = 1, preferredIndex = 3,
+    button1 = YES,
+    button2 = NO,
+    timeout = 0,
+    whileDead = 1,
+    hideOnEscape = 1,
+    preferredIndex = 3,
     OnAccept = function(_, data) ADB.Items.RequestPotion(data) end,
 }
 
@@ -150,7 +160,7 @@ function IW.OnSlotClick(b, button)
             ADB.Items.Unequip(b.key)
         elseif it.kind == "equip" then
             ADB.Items.Equip(b.key)
-        elseif it.kind == "potvie" or it.kind == "potmana" then
+        elseif ADB.CONSUMABLES[it.kind] and ADB.CONSUMABLES[it.kind].use then
             StaticPopup_Show("ADB_POTION", ADB.Items.ColoredName(it), ADB.CONSUMABLES[it.kind].desc, b.key)
         end
     end
@@ -165,7 +175,7 @@ function IW.SlotTooltip(b)
     if def then
         GameTooltip:AddLine(def.desc, 1, 0.82, 0, true)
         if def.stack > 1 then GameTooltip:AddLine("Quantité : " .. it.count .. " / " .. def.stack, 1, 1, 1) end
-        if it.kind ~= "ration" then GameTooltip:AddLine("Clic droit : utiliser", 0.6, 0.6, 0.6) end
+        if def.use then GameTooltip:AddLine("Clic droit : utiliser", 0.6, 0.6, 0.6) end
     elseif it.kind == "story" then
         GameTooltip:AddLine(it.desc ~= "" and it.desc or "Objet narratif", 1, 0.82, 0, true)
     else

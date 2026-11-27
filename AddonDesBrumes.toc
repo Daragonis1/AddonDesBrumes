@@ -17,9 +17,11 @@ Core\Lifecycle.lua
 UI\Widgets.lua
 UI\Icons.lua
 Data\PetTypes.lua
+Data\Professions.lua
 Logic\Stats.lua
 Logic\Sync.lua
 Logic\Items.lua
+Logic\Professions.lua
 Logic\NPC.lua
 Logic\Combat.lua
 UI\UnitFrames.lua
@@ -56,4 +58,6 @@ Logic\CombatFeedback.lua
 UI\TypingIndicator.lua
 UI\GmTools.lua
 UI\Settings.lua
+UI\ProfessionUI.lua
+UI\RestChoice.lua
 UI\Templates.xml

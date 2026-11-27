@@ -173,6 +173,8 @@ function ADB.InitDB()
     db.copper = Clamp(floor(tonumber(db.copper) or 0), 0, ADB.COPPER_MAX)
     db.shield = Clamp(floor(tonumber(db.shield) or 0), 0, ADB.SHIELD_MAX)
     db.aspirationPoints = max(0, floor(tonumber(db.aspirationPoints) or 0))
+    db.giant = (db.giant == true) or nil     -- Potion de taille de géant (jusqu'au prochain repos)
+    ADB.Professions.InitDB(db)
 
     local inv = {}
     if type(db.inventory) == "table" then
